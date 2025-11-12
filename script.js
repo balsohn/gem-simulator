@@ -121,8 +121,8 @@ function craft(method) {
         grade: slot.label
     });
 
-    // 게임 종료 확인
-    if (gameState.remainingTurns === 0 || gameState.currentPosition === 16 || gameState.currentPosition === 17) {
+    // 게임 종료 확인 (8회 모두 사용 시에만 종료)
+    if (gameState.remainingTurns === 0) {
         endGame();
     }
 
@@ -236,7 +236,7 @@ function simulateRandomGame() {
     let refineLeft = 3;
     let stabilizerLeft = 3;
 
-    while (turns > 0 && position !== 16 && position !== 17) {
+    while (turns > 0) {
         // 랜덤 전략: 무작위 방법 선택
         const availableMethods = ['hammer'];
         if (refineLeft > 0) availableMethods.push('refine');
@@ -251,8 +251,6 @@ function simulateRandomGame() {
 
         if (method === 'refine') refineLeft--;
         if (method === 'stabilizer') stabilizerLeft--;
-
-        if (position === 16 || position === 17) break;
     }
 
     return { finalPosition: position, turnsUsed: 8 - turns };
