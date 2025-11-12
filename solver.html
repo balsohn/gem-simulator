@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>조각 맞추기 자동 계산기</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="solver_style.css">
+</head>
+<body>
+    <div class="container">
+        <div class="nav-container">
+            <a href="index.html" class="nav-btn">레어 보석 세공</a>
+            <a href="epic.html" class="nav-btn">에픽 보석 세공</a>
+            <a href="solver.html" class="nav-btn active">조각 맞추기</a>
+        </div>
+        <h1>🧩 조각 맞추기 자동 계산기</h1>
+
+        <div class="grid-section">
+            <h3>1. 맵 만들기 (7x7 그리드)</h3>
+            <p>채우고 싶은 칸을 클릭해서 맵을 만들어주세요.</p>
+            <div class="locked-info">
+                🔒 <strong>잠긴 영역</strong>: 한가운데 줄무늬 영역은 편집할 수 없지만 조각 배치는 가능합니다.
+            </div>
+            <div id="grid-container" class="grid"></div>
+            <button id="reset-grid-btn" class="reset-btn">맵 초기화</button>
+        </div>
+
+        <div class="pieces-section">
+            <h3>2. 보유 조각 입력</h3>
+            <p>가지고 있는 조각의 개수를 입력해주세요.</p>
+            <div class="pieces-info">
+                💡 <strong>안내</strong>: 세트 옵션이나 기본 옵션은 설정할 수 없습니다.<br>
+                원하는 조각만 선택해서 자유롭게 배치해보세요!
+            </div>
+            <div class="pieces-buttons">
+                <button id="clear-pieces-btn" class="reset-btn">조각 초기화</button>
+            </div>
+            <div id="piece-palette" class="palette"></div>
+        </div>
+
+        <div class="solver-section">
+            <h3>3. 자동 배치 계산</h3>
+            <p>입력한 조각으로 맵을 최대한 채우는 방법을 찾아드립니다.</p>
+            <button id="solve-btn" class="analysis-btn solve-btn">🎯 자동 맞추기 시작</button>
+            <div id="solution-summary" class="solution-summary"></div>
+        </div>
+
+        <div id="solutions-container" class="solutions-container"></div>
+    </div>
+    <script src="solver.js"></script>
+</body>
+</html>
