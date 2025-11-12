@@ -6,7 +6,7 @@ let dpTable = null;
 
 // DP 테이블 초기화 및 계산
 function calculateDPTable() {
-    console.log('📊 DP 테이블 계산 시작...');
+    console.log('📊 DP 테이블 계산 시작 (에픽 모드)...');
     const startTime = performance.now();
 
     // 4차원 배열 초기화
@@ -34,10 +34,11 @@ function calculateDPTable() {
     for (let pos = 0; pos <= 16; pos++) {
         for (let refine = 0; refine <= 3; refine++) {
             for (let stabilizer = 0; stabilizer <= 3; stabilizer++) {
+                const isSuccess = pos === 13 || pos === 15;
                 dpTable[pos][0][refine][stabilizer] = {
                     bestAction: 'none',
-                    successProb: pos === 15 ? 1.0 : 0.0,
-                    expectedValue: pos === 15 ? 1.0 : 0.0
+                    successProb: isSuccess ? 1.0 : 0.0,
+                    expectedValue: isSuccess ? 1.0 : 0.0
                 };
             }
         }
@@ -104,7 +105,7 @@ function calculateDPTable() {
     const successProb = (dpTable[0][8][3][3].successProb * 100).toFixed(1);
 
     console.log(`✅ DP 테이블 계산 완료! (${(endTime - startTime).toFixed(0)}ms)`);
-    console.log(`🎯 시작(0번, 8턴, 세공3, 안정제3) → 15번 성공 확률: ${successProb}%`);
+    console.log(`🎯 시작(0번, 8턴, 세공3, 안정제3) → 슈퍼에픽(13, 15번) 성공 확률: ${successProb}%`);
     console.log(`📊 총 상태 수: ${17 * 9 * 4 * 4} = 2,448개`);
 
     // 사용자에게 알림

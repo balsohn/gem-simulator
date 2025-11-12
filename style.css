@@ -495,19 +495,7 @@ h1 {
     color: #667eea;
 }
 
-.strategy-step {
-    padding: 12px;
-    margin-bottom: 10px;
-    background: white;
-    border-radius: 8px;
-    border-left: 4px solid #667eea;
-}
 
-.step-number {
-    font-weight: bold;
-    color: #667eea;
-    margin-right: 10px;
-}
 
 /* 반응형 */
 @media (max-width: 768px) {
@@ -535,4 +523,33 @@ h1 {
     .analysis-section {
         grid-template-columns: 1fr;
     }
+}
+
+/* Manual Advisor */
+.manual-advisor-inputs {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 15px;
+    margin-bottom: 15px;
+}
+
+.advisor-input {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+
+.advisor-input label {
+    font-weight: bold;
+    color: #555;
+    font-size: 0.9em;
+}
+
+.advisor-input input {
+    width: 100%;
+    padding: 8px;
+    border-radius: 5px;
+    border: 1px solid #ddd;
+    font-size: 1em;
+    font-family: inherit;
 }

@@ -11,7 +11,7 @@ let gameState = {
 // 추천 타이머 ID
 let recommendationTimer = null;
 
-// 슬롯 정의 (0-17)
+// 슬롯 정의 (0-16)
 const SLOTS = [
     { number: 0, grade: 'rare', label: '희귀' },
     { number: 1, grade: 'rare', label: '희귀' },
@@ -26,11 +26,10 @@ const SLOTS = [
     { number: 10, grade: 'epic', label: '에픽' },
     { number: 11, grade: 'epic', label: '에픽' },
     { number: 12, grade: 'epic', label: '에픽' },
-    { number: 13, grade: 'epic', label: '에픽' },
+    { number: 13, grade: 'rare', label: '희귀' },
     { number: 14, grade: 'rare', label: '희귀' },
-    { number: 15, grade: 'rare', label: '희귀' },
-    { number: 16, grade: 'super-epic', label: '슈퍼 에픽' },
-    { number: 17, grade: 'fail', label: '꽝' }
+    { number: 15, grade: 'super-epic', label: '슈퍼 에픽' },
+    { number: 16, grade: 'fail', label: '꽝' }
 ];
 
 // 가공 방법 정의
@@ -44,7 +43,7 @@ const CRAFTING_METHODS = {
 function initGame() {
     renderSlots();
     updateDisplay();
-    addLog('게임이 시작되었습니다! 0번 칸에서 시작, 16번 칸(슈퍼 에픽)을 목표로 가공하세요!');
+    addLog('게임이 시작되었습니다! 0번 칸에서 시작, 15번 칸(슈퍼 에픽)을 목표로 가공하세요!');
     showAutoRecommendation(); // 시작 시 추천 표시
 }
 
@@ -99,7 +98,7 @@ function craft(method) {
 
     const craftMethod = CRAFTING_METHODS[method];
     const movement = getRandomInt(craftMethod.min, craftMethod.max);
-    const newPosition = Math.max(1, Math.min(17, gameState.currentPosition + movement));
+    const newPosition = Math.max(1, Math.min(16, gameState.currentPosition + movement));
 
     // 애니메이션
     const gemElement = document.getElementById('gemSprite');
@@ -133,8 +132,8 @@ function craft(method) {
     });
 
     // 게임 종료 확인
-    // 17번 꽝이면 즉시 종료, 16번은 계속 플레이 가능, 8회 다 쓰면 종료
-    if (gameState.currentPosition === 17 || gameState.remainingTurns === 0) {
+    // 16번 꽝이면 즉시 종료, 15번은 계속 플레이 가능, 8회 다 쓰면 종료
+    if (gameState.currentPosition === 16 || gameState.remainingTurns === 0) {
         endGame();
     } else {
         // 게임이 계속되면 다음 추천 표시
@@ -208,9 +207,9 @@ function showAutoRecommendation() {
             const actionName = getActionName(optimal.bestAction);
             const successProb = (optimal.successProb * 100).toFixed(1);
 
-            if (currentPos === 16) {
+            if (currentPos === 15) {
                 recommendation = `🎉 슈퍼 에픽 달성! 최적 행동: ${actionName}`;
-            } else if (currentPos === 17) {
+            } else if (currentPos === 16) {
                 recommendation = '❌ 꽝 - 게임 종료';
             } else if (optimal.bestAction === 'none') {
                 recommendation = '게임 종료';
@@ -225,7 +224,7 @@ function showAutoRecommendation() {
 
     // DP 사용 불가 또는 DP 결과 없으면 휴리스틱 사용
     if (!recommendation) {
-        const distance = 16 - currentPos;
+        const distance = 15 - currentPos;
         const hasStabilizer = gameState.stabilizerCount > 0;
         const hasRefine = gameState.refineCount > 0;
 
@@ -233,16 +232,16 @@ function showAutoRecommendation() {
     if (currentPos === 0) {
         recommendation = '세게 두드리기로 게임 시작! (+3~+6 이동)';
     }
-    // 16번 도달 (목표)
-    else if (currentPos === 16) {
+    // 15번 도달 (목표)
+    else if (currentPos === 15) {
         if (hasRefine) {
-            recommendation = '🎉 슈퍼 에픽 달성! 세공하기로 16번 유지 가능 (17번 주의!)';
+            recommendation = '🎉 슈퍼 에픽 달성! 세공하기로 15번 유지 가능 (16번 주의!)';
         } else {
-            recommendation = '🎉 슈퍼 에픽 달성! 남은 턴 소진 (움직이면 17번 위험!)';
+            recommendation = '🎉 슈퍼 에픽 달성! 남은 턴 소진 (움직이면 16번 위험!)';
         }
     }
-    // 16번 초과
-    else if (currentPos > 16) {
+    // 15번 초과
+    else if (currentPos > 15) {
         if (hasRefine) {
             recommendation = `⚠️ 세공하기로 뒤로! (세공 ${gameState.refineCount}회 남음, -3 필요)`;
         } else {
@@ -252,7 +251,7 @@ function showAutoRecommendation() {
     // 거리별 세밀한 추천
     else {
         // 10번 이상 위치 (에픽 구간)에서 세공 추천
-        const inEpicZone = currentPos >= 10 && currentPos < 16;
+        const inEpicZone = currentPos >= 10 && currentPos < 15;
 
         // 초근접 (0-2칸)
         if (distance <= 2) {
@@ -268,7 +267,7 @@ function showAutoRecommendation() {
         else if (distance <= 4) {
             // 10번 이상이면 세공 우선 추천
             if (inEpicZone && hasRefine) {
-                recommendation = `🎨 세공하기 추천! (${currentPos}번→16번, 세공 ${gameState.refineCount}회, -3~+2로 안전 조정)`;
+                recommendation = `🎨 세공하기 추천! (${currentPos}번→15번, 세공 ${gameState.refineCount}회, -3~+2로 안전 조정)`;
             } else if (hasStabilizer) {
                 const stabNeeded = Math.ceil(distance / 2);
                 if (gameState.stabilizerCount >= stabNeeded) {
@@ -279,13 +278,13 @@ function showAutoRecommendation() {
             } else if (hasRefine) {
                 recommendation = `⚠️ 세공하기로 조정! (${distance}칸, 세공 ${gameState.refineCount}회)`;
             } else {
-                recommendation = `⚠️ 세게 두드리기 (안정제/세공 소진, ${distance}칸, 17번 초과 주의!)`;
+                recommendation = `⚠️ 세게 두드리기 (안정제/세공 소진, ${distance}칸, 16번 초과 주의!)`;
             }
         }
         // 중거리 (5-6칸) - 10번 이상이면 세공 추천
         else if (distance <= 6) {
             if (inEpicZone && hasRefine) {
-                recommendation = `🎨 세공하기로 안전하게! (${currentPos}번→16번, 세공 ${gameState.refineCount}회, 17번 초과 방지)`;
+                recommendation = `🎨 세공하기로 안전하게! (${currentPos}번→15번, 세공 ${gameState.refineCount}회, 16번 초과 방지)`;
             } else {
                 const hammerNeeded = Math.ceil(distance / 4.5);
                 if (hasStabilizer && gameState.stabilizerCount >= 2) {
@@ -322,7 +321,7 @@ function showAutoRecommendation() {
         }
 
         // 자원 부족 경고 추가
-        if (!hasStabilizer && !hasRefine && distance > 0 && distance !== 16) {
+        if (!hasStabilizer && !hasRefine && distance > 0 && distance !== 15) {
             recommendation += ' 🚨 세공/안정제 모두 소진!';
         }
         }
@@ -376,14 +375,14 @@ function endGame() {
 
     const finalSlot = SLOTS[gameState.currentPosition];
 
-    if (gameState.currentPosition === 16) {
+    if (gameState.currentPosition === 15) {
         titleElement.textContent = '🎉 대성공! 슈퍼 에픽 달성!';
         titleElement.style.color = '#e74c3c';
         messageElement.textContent = `최고 등급인 슈퍼 에픽을 달성했습니다! (${8 - gameState.remainingTurns}번 시도)`;
-    } else if (gameState.currentPosition === 17) {
+    } else if (gameState.currentPosition === 16) {
         titleElement.textContent = '😢 아쉽게도 꽝입니다...';
         titleElement.style.color = '#95a5a6';
-        messageElement.textContent = '17번 칸에 도달하여 랜덤 낮은 등급이 나왔습니다.';
+        messageElement.textContent = '16번 칸에 도달하여 랜덤 낮은 등급이 나왔습니다.';
     } else if (finalSlot.grade === 'epic') {
         titleElement.textContent = '👍 좋아요! 에픽 달성!';
         titleElement.style.color = '#9b59b6';
@@ -436,9 +435,9 @@ function runSimulation() {
             const result = simulateRandomGame();
             const slot = SLOTS[result.finalPosition];
 
-            if (result.finalPosition === 16) {
+            if (result.finalPosition === 15) {
                 results.superEpic++;
-            } else if (result.finalPosition === 17) {
+            } else if (result.finalPosition === 16) {
                 results.fail++;
             } else if (slot.grade === 'epic') {
                 results.epic++;
@@ -471,14 +470,14 @@ function simulateRandomGame() {
         const craftMethod = CRAFTING_METHODS[method];
         const movement = getRandomInt(craftMethod.min, craftMethod.max);
 
-        position = Math.max(1, Math.min(17, position + movement));
+        position = Math.max(1, Math.min(16, position + movement));
         turns--;
 
         if (method === 'refine') refineLeft--;
         if (method === 'stabilizer') stabilizerLeft--;
 
-        // 17번 꽝이면 즉시 종료
-        if (position === 17) break;
+        // 16번 꽝이면 즉시 종료
+        if (position === 16) break;
     }
 
     return { finalPosition: position, turnsUsed: 8 - turns };
@@ -495,11 +494,11 @@ function displaySimulationResults(results, total) {
 
     resultDiv.innerHTML = `
         <div class="stat-item">
-            <span class="stat-label">🔴 슈퍼 에픽 (16번):</span>
+            <span class="stat-label">🔴 슈퍼 에픽 (15번):</span>
             <span class="stat-value" style="color: #e74c3c;">${results.superEpic}회 (${superEpicRate}%)</span>
         </div>
         <div class="stat-item">
-            <span class="stat-label">🟣 에픽 (10-13번):</span>
+            <span class="stat-label">🟣 에픽 (10-12번):</span>
             <span class="stat-value" style="color: #9b59b6;">${results.epic}회 (${epicRate}%)</span>
         </div>
         <div class="stat-item">
@@ -507,7 +506,7 @@ function displaySimulationResults(results, total) {
             <span class="stat-value" style="color: #4a90e2;">${results.rare}회 (${rareRate}%)</span>
         </div>
         <div class="stat-item">
-            <span class="stat-label">⚫ 꽝 (17번):</span>
+            <span class="stat-label">⚫ 꽝 (16번):</span>
             <span class="stat-value" style="color: #95a5a6;">${results.fail}회 (${failRate}%)</span>
         </div>
         <div style="margin-top: 15px; padding: 10px; background: white; border-radius: 5px;">
@@ -518,144 +517,53 @@ function displaySimulationResults(results, total) {
     `;
 }
 
-// 최적 전략 추천
-function recommendStrategy() {
-    addLog('최적 전략 분석 중...');
 
-    setTimeout(() => {
-        const strategy = calculateOptimalStrategy();
-        displayStrategy(strategy);
-        addLog('전략 분석 완료!');
-    }, 100);
-}
 
-// 최적 전략 계산
-function calculateOptimalStrategy() {
-    const currentPos = gameState.currentPosition;
-    const target = 16;
-    const distance = target - currentPos;
+// 수동 최적 행동 분석
+function getManualRecommendation() {
+    const manualResultDiv = document.getElementById('manualResult');
+    manualResultDiv.innerHTML = ''; // Clear previous results
 
-    const strategies = [];
+    const pos = parseInt(document.getElementById('manualPos').value);
+    const turns = parseInt(document.getElementById('manualTurns').value);
+    const refine = parseInt(document.getElementById('manualRefine').value);
+    const stabilizer = parseInt(document.getElementById('manualStabilizer').value);
 
-    // 전략 1: 직진 전략 (세게 두드리기 위주)
-    if (distance > 0) {
-        const hammerTurns = Math.ceil(distance / 4.5); // 평균 +4.5
-        if (hammerTurns <= gameState.remainingTurns) {
-            strategies.push({
-                name: '직진 전략',
-                description: '세게 두드리기를 사용해 빠르게 16번 칸으로 이동',
-                steps: [
-                    `현재 위치: ${currentPos}번 → 목표: 16번 (거리: ${distance})`,
-                    `세게 두드리기 ${hammerTurns}번 사용 (평균 +4.5 이동)`,
-                    `예상 도착 지점: 14-17번 사이`,
-                    `16번 근처 도달 시 안정제나 세공하기로 미세 조정`
-                ],
-                priority: distance > 10 ? 'high' : 'medium',
-                successRate: distance <= 12 ? '70-80%' : '50-60%'
-            });
-        }
+    // Basic validation
+    if (isNaN(pos) || isNaN(turns) || isNaN(refine) || isNaN(stabilizer)) {
+        manualResultDiv.innerHTML = '<p style="color: #e74c3c;">모든 값을 숫자로 입력해주세요.</p>';
+        return;
     }
-
-    // 전략 2: 안정 전략 (안정제 위주)
-    if (gameState.stabilizerCount > 0) {
-        const stabilizerUse = Math.min(gameState.stabilizerCount, Math.ceil(distance / 2));
-        const stabilizerDistance = stabilizerUse * 2; // 안정제 평균 +2
-        const remainingDistance = Math.max(0, distance - stabilizerDistance);
-        const hammerUse = remainingDistance > 0 ? Math.ceil(remainingDistance / 4.5) : 0;
-
-        strategies.push({
-            name: '안정 전략',
-            description: '안정제를 사용해 안전하게 목표 지점으로 이동',
-            steps: [
-                `안정제 ${stabilizerUse}회 사용 (평균 +${stabilizerUse * 2}칸 이동)`,
-                hammerUse > 0 ? `세게 두드리기 ${hammerUse}회 추가 (평균 +${(hammerUse * 4.5).toFixed(1)}칸)` : `안정제만으로 도달 가능`,
-                `총 예상 이동: 약 ${stabilizerDistance + hammerUse * 4.5}칸`,
-                `16번 초과 방지 가능, 안정적인 접근`
-            ],
-            priority: distance <= 8 ? 'high' : 'low',
-            successRate: distance <= 8 ? '70-80%' : '50-60%'
-        });
-    }
-
-    // 전략 3: 정밀 조정 전략 (현재 위치가 목표 근처일 때)
-    if (distance <= 5 && distance > 0) {
-        strategies.push({
-            name: '정밀 조정 전략',
-            description: '목표에 가까우므로 세밀한 조정으로 정확히 16번에 착지',
-            steps: [
-                `현재 ${currentPos}번에서 16번까지 ${distance}칸 남음`,
-                distance <= 4 ? `안정제 1회로 정확히 도달 가능` : `세게 두드리기 1회 사용`,
-                `초과 시 세공하기의 -3~+2 범위로 조정`,
-                `남은 턴: ${gameState.remainingTurns}회로 충분한 여유`
-            ],
-            priority: 'very-high',
-            successRate: '80-90%'
-        });
-    }
-
-    // 전략 4: 역산 전략 (너무 멀리 갔을 때)
-    if (currentPos > 16) {
-        strategies.push({
-            name: '역산 전략',
-            description: '16번을 초과했으므로 세공하기로 후퇴',
-            steps: [
-                `현재 ${currentPos}번 (16번 초과)`,
-                `세공하기 사용하여 -3~+2 범위로 조정`,
-                `-3이 나오면 ${currentPos - 3}번으로 이동`,
-                `16번에 재착지 시도`
-            ],
-            priority: 'critical',
-            successRate: gameState.refineCount > 0 ? '40-50%' : '10-20%'
-        });
-    }
-
-    // 우선순위 정렬
-    strategies.sort((a, b) => {
-        const priorityOrder = { 'critical': 0, 'very-high': 1, 'high': 2, 'medium': 3, 'low': 4 };
-        return priorityOrder[a.priority] - priorityOrder[b.priority];
-    });
-
-    return strategies;
-}
-
-// 전략 표시
-function displayStrategy(strategies) {
-    const strategyDiv = document.getElementById('strategyResult');
-
-    if (strategies.length === 0) {
-        strategyDiv.innerHTML = '<p>현재 상황에서 추천할 전략이 없습니다.</p>';
+    if (pos < 0 || pos > 16 || turns < 0 || turns > 8 || refine < 0 || refine > 3 || stabilizer < 0 || stabilizer > 3) {
+        manualResultDiv.innerHTML = '<p style="color: #e74c3c;">입력 값이 유효한 범위를 벗어났습니다.</p>';
         return;
     }
 
-    let html = '';
+    if (typeof getOptimalAction !== 'function' || dpTable === null) {
+        manualResultDiv.innerHTML = '<p style="color: #f39c12;">DP 테이블이 아직 계산되지 않았거나 로드되지 않았습니다. 잠시 후 다시 시도해주세요.</p>';
+        return;
+    }
 
-    strategies.forEach((strategy, index) => {
-        const priorityColor = {
-            'critical': '#e74c3c',
-            'very-high': '#e67e22',
-            'high': '#27ae60',
-            'medium': '#3498db',
-            'low': '#95a5a6'
-        };
+    const optimal = getOptimalAction(pos, turns, refine, stabilizer);
 
-        html += `
-            <div style="margin-bottom: 20px; padding: 15px; background: white; border-radius: 10px; border-left: 5px solid ${priorityColor[strategy.priority]};">
-                <h4 style="margin-bottom: 10px; color: ${priorityColor[strategy.priority]};">
-                    ${index + 1}. ${strategy.name} (성공률: ${strategy.successRate})
-                </h4>
-                <p style="margin-bottom: 10px; color: #555;">${strategy.description}</p>
-                <div style="background: #f8f9fa; padding: 10px; border-radius: 5px;">
-                    ${strategy.steps.map((step, i) => `
-                        <div class="strategy-step" style="margin-bottom: 5px;">
-                            <span class="step-number">${i + 1}.</span> ${step}
-                        </div>
-                    `).join('')}
-                </div>
-            </div>
-        `;
-    });
+    if (optimal && optimal.bestAction) {
+        const actionName = getActionName(optimal.bestAction);
+        const successProb = (optimal.successProb * 100).toFixed(1);
 
-    strategyDiv.innerHTML = html;
+        let message = '';
+        if (pos === 15) {
+            message = `🎉 현재 슈퍼 에픽 달성! 최적 행동: ${actionName}`;
+        } else if (pos === 16) {
+            message = '❌ 현재 꽝! 게임 종료 상태입니다.';
+        } else if (optimal.bestAction === 'none') {
+            message = '게임 종료 (더 이상 턴이 없거나 최적 행동이 없음)';
+        } else {
+            message = `🎯 최적 행동: <strong>${actionName}</strong> (15번 도달 성공률: ${successProb}%)`;
+        }
+        manualResultDiv.innerHTML = `<p>${message}</p>`;
+    } else {
+        manualResultDiv.innerHTML = '<p style="color: #95a5a6;">해당 상태에 대한 최적 행동을 찾을 수 없습니다.</p>';
+    }
 }
 
 // 페이지 로드 시 초기화

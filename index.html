@@ -8,6 +8,10 @@
 </head>
 <body>
     <div class="container">
+        <div class="nav-links" style="text-align: center; margin-bottom: 20px; font-size: 1.2em;">
+            <span style="color: #f1c40f; font-weight: bold;">레어 보석 세공</span> | 
+            <a href="epic.html" style="color: white; text-decoration: none;">에픽 보석 세공</a>
+        </div>
         <h1>💎 보석 가공 시뮬레이터</h1>
 
         <!-- 게임 상태 -->
@@ -91,9 +95,27 @@
             </div>
 
             <div class="analysis-card">
-                <h3>🎯 최적 전략 추천</h3>
-                <button onclick="recommendStrategy()" class="analysis-btn">전략 분석하기</button>
-                <div id="strategyResult" class="strategy-result"></div>
+                <h3>⚙️ 상태별 최적 분석</h3>
+                <div class="manual-advisor-inputs">
+                    <div class="advisor-input">
+                        <label for="manualPos">위치</label>
+                        <input type="number" id="manualPos" value="0" min="0" max="17">
+                    </div>
+                    <div class="advisor-input">
+                        <label for="manualTurns">턴</label>
+                        <input type="number" id="manualTurns" value="8" min="0" max="8">
+                    </div>
+                    <div class="advisor-input">
+                        <label for="manualRefine">세공</label>
+                        <input type="number" id="manualRefine" value="3" min="0" max="3">
+                    </div>
+                    <div class="advisor-input">
+                        <label for="manualStabilizer">안정제</label>
+                        <input type="number" id="manualStabilizer" value="3" min="0" max="3">
+                    </div>
+                </div>
+                <button onclick="getManualRecommendation()" class="analysis-btn">최적 행동 분석</button>
+                <div id="manualResult" class="simulation-result"></div>
             </div>
         </div>
     </div>

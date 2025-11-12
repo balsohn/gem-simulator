@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>에픽 보석 가공 시뮬레이터</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <div class="nav-links" style="text-align: center; margin-bottom: 20px; font-size: 1.2em;">
+            <a href="index.html" style="color: white; text-decoration: none;">레어 보석 세공</a> | 
+            <span style="color: #f1c40f; font-weight: bold;">에픽 보석 세공</span>
+        </div>
+        <h1>💎 에픽 보석 가공 시뮬레이터</h1>
+
+        <!-- 게임 상태 -->
+        <div class="game-status">
+            <div class="status-item">
+                <span class="label">남은 시도:</span>
+                <span id="remainingTurns" class="value">8</span>
+            </div>
+            <div class="status-item">
+                <span class="label">현재 위치:</span>
+                <span id="currentPosition" class="value">1</span>
+            </div>
+            <div class="status-item">
+                <span class="label">현재 등급:</span>
+                <span id="currentGrade" class="value grade-rare">희귀</span>
+            </div>
+        </div>
+
+        <!-- 추천 전략 -->
+        <div id="autoRecommendation" class="auto-recommendation hidden">
+            <div class="recommendation-icon">💡</div>
+            <div class="recommendation-text">
+                <div class="recommendation-title">다음 추천</div>
+                <div id="recommendationContent" class="recommendation-content"></div>
+            </div>
+        </div>
+
+        <!-- 보석 디스플레이 -->
+        <div class="gem-display">
+            <div class="gem-container">
+                <div id="gemSprite" class="gem rare-gem">💎</div>
+                <div id="movementEffect" class="movement-effect"></div>
+            </div>
+        </div>
+
+        <!-- 슬롯 시스템 -->
+        <div class="slots-container">
+            <div class="slots" id="slotsDisplay">
+                <!-- 슬롯은 JavaScript로 생성됩니다 -->
+            </div>
+        </div>
+
+        <!-- 가공 방법 선택 -->
+        <div class="crafting-methods">
+            <button id="hammer" class="craft-btn" onclick="craft('hammer')">
+                <div class="btn-title">세게 두드리기</div>
+                <div class="btn-range">+3 ~ +6</div>
+                <div class="btn-uses">무제한</div>
+            </button>
+            <button id="refine" class="craft-btn" onclick="craft('refine')">
+                <div class="btn-title">세공하기</div>
+                <div class="btn-range">-3 ~ +2</div>
+                <div class="btn-uses">남은 횟수: <span id="refineCount">3</span></div>
+            </button>
+            <button id="stabilizer" class="craft-btn" onclick="craft('stabilizer')">
+                <div class="btn-title">안정제 사용</div>
+                <div class="btn-range">+0 ~ +4</div>
+                <div class="btn-uses">남은 횟수: <span id="stabilizerCount">3</span></div>
+            </button>
+        </div>
+
+        <!-- 게임 결과 -->
+        <div id="gameResult" class="game-result hidden">
+            <h2 id="resultTitle"></h2>
+            <p id="resultMessage"></p>
+            <button onclick="resetGame()" class="reset-btn">다시 시작</button>
+        </div>
+
+        <!-- 로그 -->
+        <div class="log-container">
+            <h3>가공 기록</h3>
+            <div id="gameLog" class="game-log"></div>
+        </div>
+
+        <!-- 통계 및 전략 -->
+        <div class="analysis-section">
+            <div class="analysis-card">
+                <h3>📊 확률 분석</h3>
+                <button onclick="runSimulation()" class="analysis-btn">10,000회 시뮬레이션 실행</button>
+                <div id="simulationResult" class="simulation-result"></div>
+            </div>
+
+            <div class="analysis-card">
+                <h3>⚙️ 상태별 최적 분석</h3>
+                <div class="manual-advisor-inputs">
+                    <div class="advisor-input">
+                        <label for="manualPos">위치</label>
+                        <input type="number" id="manualPos" value="0" min="0" max="16">
+                    </div>
+                    <div class="advisor-input">
+                        <label for="manualTurns">턴</label>
+                        <input type="number" id="manualTurns" value="8" min="0" max="8">
+                    </div>
+                    <div class="advisor-input">
+                        <label for="manualRefine">세공</label>
+                        <input type="number" id="manualRefine" value="3" min="0" max="3">
+                    </div>
+                    <div class="advisor-input">
+                        <label for="manualStabilizer">안정제</label>
+                        <input type="number" id="manualStabilizer" value="3" min="0" max="3">
+                    </div>
+                </div>
+                <button onclick="getManualRecommendation()" class="analysis-btn">최적 행동 분석</button>
+                <div id="manualResult" class="simulation-result"></div>
+            </div>
+        </div>
+    </div>
+
+    <script src="epic_optimizer.js"></script>
+    <script src="epic_script.js"></script>
+</body>
+</html>
