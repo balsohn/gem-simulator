@@ -80,6 +80,67 @@ h1 {
     }
 }
 
+/* 자동 추천 */
+.auto-recommendation {
+    max-width: 800px;
+    margin: 0 auto 30px;
+    background: linear-gradient(135deg, #f39c12, #e67e22);
+    padding: 20px 30px;
+    border-radius: 15px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    animation: slideIn 0.5s ease-out;
+}
+
+.auto-recommendation.hidden {
+    display: none;
+}
+
+@keyframes slideIn {
+    from {
+        opacity: 0;
+        transform: translateY(-20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.recommendation-icon {
+    font-size: 3em;
+    animation: pulse-icon 2s ease-in-out infinite;
+}
+
+@keyframes pulse-icon {
+    0%, 100% {
+        transform: scale(1);
+    }
+    50% {
+        transform: scale(1.2);
+    }
+}
+
+.recommendation-text {
+    flex: 1;
+    color: white;
+}
+
+.recommendation-title {
+    font-size: 1em;
+    font-weight: bold;
+    margin-bottom: 5px;
+    opacity: 0.9;
+}
+
+.recommendation-content {
+    font-size: 1.3em;
+    font-weight: bold;
+    text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.3);
+}
+
 /* 보석 디스플레이 */
 .gem-display {
     display: flex;
@@ -92,6 +153,7 @@ h1 {
     padding: 30px;
     border-radius: 20px;
     box-shadow: 0 8px 16px rgba(0, 0, 0, 0.2);
+    position: relative;
 }
 
 .gem {
@@ -108,6 +170,50 @@ h1 {
     0%, 100% { transform: rotate(0deg); }
     25% { transform: rotate(-10deg) scale(1.1); }
     75% { transform: rotate(10deg) scale(1.1); }
+}
+
+/* 이동 숫자 이펙트 */
+.movement-effect {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 4em;
+    font-weight: bold;
+    pointer-events: none;
+    opacity: 0;
+    text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+.movement-effect.show {
+    animation: floatUp 1.5s ease-out forwards;
+}
+
+.movement-effect.positive {
+    color: #27ae60;
+}
+
+.movement-effect.negative {
+    color: #e74c3c;
+}
+
+.movement-effect.zero {
+    color: #95a5a6;
+}
+
+@keyframes floatUp {
+    0% {
+        opacity: 1;
+        transform: translate(-50%, -50%) scale(0.5);
+    }
+    50% {
+        opacity: 1;
+        transform: translate(-50%, -100%) scale(1.2);
+    }
+    100% {
+        opacity: 0;
+        transform: translate(-50%, -150%) scale(1);
+    }
 }
 
 /* 슬롯 시스템 */

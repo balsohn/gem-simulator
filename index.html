@@ -26,10 +26,20 @@
             </div>
         </div>
 
+        <!-- 추천 전략 -->
+        <div id="autoRecommendation" class="auto-recommendation hidden">
+            <div class="recommendation-icon">💡</div>
+            <div class="recommendation-text">
+                <div class="recommendation-title">다음 추천</div>
+                <div id="recommendationContent" class="recommendation-content"></div>
+            </div>
+        </div>
+
         <!-- 보석 디스플레이 -->
         <div class="gem-display">
             <div class="gem-container">
                 <div id="gemSprite" class="gem rare-gem">💎</div>
+                <div id="movementEffect" class="movement-effect"></div>
             </div>
         </div>
 
@@ -88,6 +98,7 @@
         </div>
     </div>
 
+    <script src="optimizer.js"></script>
     <script src="script.js"></script>
 </body>
 </html>
