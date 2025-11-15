@@ -4023,21 +4023,23 @@ function findPieceNameByShape(extractedShape) {
             return;
         }
 
-        // Find the primary column with the smallest size
-        let minSize = c.size;
-        let chosenCol = c;
-        for (let j = c.R; j !== root; j = j.R) {
-            if (j.type === 'primary' && j.size < minSize) {
+        // Find the primary column with the smallest size (but skip size 0)
+        let minSize = Infinity;
+        let chosenCol = null;
+        for (let j = c; j !== root; j = j.R) {
+            if (j.type === 'primary' && j.size > 0 && j.size < minSize) {
                 minSize = j.size;
                 chosenCol = j;
             }
         }
-        c = chosenCol;
 
-        // If this column has no rows (size 0), we can't cover it - skip to next
-        if (c.size === 0) {
+        // If no coverable column exists (all remaining cells can't be covered)
+        // Save current partial solution and return
+        if (chosenCol === null) {
             return;
         }
+
+        c = chosenCol;
 
         // Collect all rows that cover column c and sort them by piece score (descending)
         // 높은 점수 조각부터 우선 배치하도록 정렬
