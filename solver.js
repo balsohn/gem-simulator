@@ -4,6 +4,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const piecePalette = document.getElementById('piece-palette');
     const solveBtn = document.getElementById('solve-btn');
     const resetGridBtn = document.getElementById('reset-grid-btn');
+    const fillAllBtn = document.getElementById('fill-all-btn');
     const clearPiecesBtn = document.getElementById('clear-pieces-btn');
     const solutionSummary = document.getElementById('solution-summary');
     const solutionsContainer = document.getElementById('solutions-container');
@@ -94,6 +95,15 @@ document.addEventListener('DOMContentLoaded', () => {
         createGrid();
     });
 
+    fillAllBtn.addEventListener('click', () => {
+        if (isSolving) return;
+        // Set all cells to unlocked (fillable)
+        gridState.fill(true);
+        createGrid();
+        solutionSummary.textContent = '✅ 맵 전체가 열렸습니다!';
+        solutionsContainer.innerHTML = '';
+    });
+
     // --- 2. Piece Generation Logic ---
 
     // --- Piece Manipulation Helpers ---
@@ -131,15 +141,15 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // Score calculation by grade
-    // 등급별 점수: 1칸=1점, 2칸=2점, 3칸=4점, 4칸=10점, 5칸=20점, 8칸(UNIQUE)=50점
-    function calculateScore(cellCount) {
-        if (cellCount === 1) return 1;
-        if (cellCount === 2) return 2;
-        if (cellCount === 3) return 4;
-        if (cellCount === 4) return 10;
-        if (cellCount === 5) return 20;
-        if (cellCount === 8) return 50; // UNIQUE
-        return cellCount * 2; // fallback for other sizes
+    // 등급별 점수: 레어=칸당 30점, 에픽=칸당 60점, 슈퍼에픽=칸당 120점
+    const GRADE_SCORES = {
+        'rare': 30,      // 레어
+        'epic': 60,      // 에픽
+        'super': 120     // 슈퍼에픽
+    };
+
+    function calculateScore(cellCount, grade = 'rare') {
+        return cellCount * GRADE_SCORES[grade];
     }
 
     // --- Base Piece Definitions ---
@@ -153,7 +163,6 @@ document.addEventListener('DOMContentLoaded', () => {
         'L3': { shape: [[0,0], [1,0], [1,1]], color: '#A2D9CE' },
         'L4': { shape: [[0,0], [1,0], [2,0], [2,1]], color: '#AED6F1' },
         'T4': { shape: [[0,1], [1,0], [1,1], [1,2]], color: '#A9CCE3' },
-
         'Plus5': { shape: [[0,1], [1,0], [1,1], [1,2], [2,1]], color: '#D2B4DE' },
         'T5': { shape: [[0,0], [0,1], [0,2], [1,1], [2,1]], color: '#D2B4DE' },
         'P5_alt': { shape: [[0,1], [0,2], [1,1], [2,0], [2,1]], color: '#D2B4DE' },
@@ -162,7 +171,6 @@ document.addEventListener('DOMContentLoaded', () => {
         'Complex9_1': { shape: [[0,0], [1,0], [1,1], [2,0], [2,1], [3,0], [3,1], [4,1]], color: '#FFD700' },
         'Complex8_1': { shape: [[0,1], [0,2], [1,1], [1,2], [2,0], [2,1], [2,2], [2,3]], color: '#FF8C00' },
         'Complex8_2': { shape: [[0,1], [1,0], [1,1], [1,2], [2,0], [2,1], [2,2], [3,1]], color: '#FF4500' },
-
     };
 
     // --- Final PIECES object, generated from BASE_PIECES ---
@@ -170,14 +178,21 @@ document.addEventListener('DOMContentLoaded', () => {
     Object.entries(BASE_PIECES).forEach(([baseName, piece]) => {
         const orientations = generateOrientations(piece.shape);
         const cellCount = piece.shape.length;
-        const defaultScore = calculateScore(cellCount);
 
         if (orientations.length === 1) {
-            PIECES[baseName] = { shape: orientations[0], color: piece.color, defaultScore };
+            PIECES[baseName] = {
+                shape: orientations[0],
+                color: piece.color,
+                cellCount: cellCount
+            };
         } else {
             orientations.forEach((orientation, index) => {
                 const pieceName = `${baseName}_${index + 1}`;
-                PIECES[pieceName] = { shape: orientation, color: piece.color, defaultScore };
+                PIECES[pieceName] = {
+                    shape: orientation,
+                    color: piece.color,
+                    cellCount: cellCount
+                };
             });
         }
     });
@@ -239,16 +254,21 @@ document.addEventListener('DOMContentLoaded', () => {
             piecesBySize[section.key].forEach(([name, piece]) => {
                 const pieceEl = document.createElement('div');
                 pieceEl.classList.add('piece-item');
+                pieceEl.style.padding = '8px';
 
+                // 조각 미리보기 컨테이너 (고정 크기)
+                const previewContainer = document.createElement('div');
+                previewContainer.classList.add('piece-preview');
+
+                // 내부 그리드 (실제 조각 모양)
                 const previewGrid = document.createElement('div');
-                previewGrid.classList.add('piece-preview');
                 const shape = piece.shape;
 
                 const maxRows = Math.max(...shape.map(p => p[0])) + 1;
                 const maxCols = Math.max(...shape.map(p => p[1])) + 1;
 
-                previewGrid.style.gridTemplateColumns = `repeat(${maxCols}, 14px)`;
-                previewGrid.style.gridTemplateRows = `repeat(${maxRows}, 14px)`;
+                previewGrid.style.gridTemplateColumns = `repeat(${maxCols}, 20px)`;
+                previewGrid.style.gridTemplateRows = `repeat(${maxRows}, 20px)`;
 
                 for (let r = 0; r < maxRows; r++) {
                     for (let c = 0; c < maxCols; c++) {
@@ -261,16 +281,128 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
                 }
 
-                const countInput = document.createElement('input');
-                countInput.type = 'number';
-                countInput.value = '0';
-                countInput.min = '0';
-                countInput.max = '10';
-                countInput.id = `piece-count-${name}`;
-                countInput.classList.add('piece-count-input');
-                countInput.placeholder = '개수';
+                previewContainer.appendChild(previewGrid);
 
-                pieceEl.append(previewGrid, countInput);
+                // 등급별 개수 입력 컨테이너 (가로 배치)
+                const gradesContainer = document.createElement('div');
+                gradesContainer.style.display = 'flex';
+                gradesContainer.style.gap = '10px';
+                gradesContainer.style.flex = '1';
+                gradesContainer.style.alignItems = 'center';
+
+                // 레어 등급
+                const rareCol = document.createElement('div');
+                rareCol.style.display = 'flex';
+                rareCol.style.flexDirection = 'column';
+                rareCol.style.gap = '6px';
+                rareCol.style.flex = '1';
+
+                const rareLabel = document.createElement('div');
+                rareLabel.textContent = `🟢 레어`;
+                rareLabel.style.fontSize = '0.9em';
+                rareLabel.style.fontWeight = '600';
+                rareLabel.style.color = '#1e7e34';
+                rareLabel.style.backgroundColor = '#d4edda';
+                rareLabel.style.padding = '8px';
+                rareLabel.style.borderRadius = '6px';
+                rareLabel.style.textAlign = 'center';
+                rareLabel.style.border = '2px solid #c3e6cb';
+
+                const rareInput = document.createElement('input');
+                rareInput.type = 'number';
+                rareInput.value = '0';
+                rareInput.min = '0';
+                rareInput.max = '10';
+                rareInput.id = `piece-count-${name}-rare`;
+                rareInput.classList.add('piece-count-input');
+                rareInput.style.width = '100%';
+                rareInput.style.padding = '8px';
+                rareInput.style.fontSize = '1em';
+                rareInput.style.textAlign = 'center';
+                rareInput.style.border = '2px solid #c3e6cb';
+                rareInput.style.borderRadius = '6px';
+                rareInput.style.fontWeight = 'bold';
+
+                rareCol.appendChild(rareLabel);
+                rareCol.appendChild(rareInput);
+
+                // 에픽 등급
+                const epicCol = document.createElement('div');
+                epicCol.style.display = 'flex';
+                epicCol.style.flexDirection = 'column';
+                epicCol.style.gap = '6px';
+                epicCol.style.flex = '1';
+
+                const epicLabel = document.createElement('div');
+                epicLabel.textContent = `🔵 에픽`;
+                epicLabel.style.fontSize = '0.9em';
+                epicLabel.style.fontWeight = '600';
+                epicLabel.style.color = '#4527a0';
+                epicLabel.style.backgroundColor = '#e1bee7';
+                epicLabel.style.padding = '8px';
+                epicLabel.style.borderRadius = '6px';
+                epicLabel.style.textAlign = 'center';
+                epicLabel.style.border = '2px solid #ce93d8';
+
+                const epicInput = document.createElement('input');
+                epicInput.type = 'number';
+                epicInput.value = '0';
+                epicInput.min = '0';
+                epicInput.max = '10';
+                epicInput.id = `piece-count-${name}-epic`;
+                epicInput.classList.add('piece-count-input');
+                epicInput.style.width = '100%';
+                epicInput.style.padding = '8px';
+                epicInput.style.fontSize = '1em';
+                epicInput.style.textAlign = 'center';
+                epicInput.style.border = '2px solid #ce93d8';
+                epicInput.style.borderRadius = '6px';
+                epicInput.style.fontWeight = 'bold';
+
+                epicCol.appendChild(epicLabel);
+                epicCol.appendChild(epicInput);
+
+                // 슈퍼에픽 등급
+                const superCol = document.createElement('div');
+                superCol.style.display = 'flex';
+                superCol.style.flexDirection = 'column';
+                superCol.style.gap = '6px';
+                superCol.style.flex = '1';
+
+                const superLabel = document.createElement('div');
+                superLabel.textContent = `⭐ 슈퍼`;
+                superLabel.style.fontSize = '0.9em';
+                superLabel.style.fontWeight = '600';
+                superLabel.style.color = '#e65100';
+                superLabel.style.backgroundColor = '#ffe0b2';
+                superLabel.style.padding = '8px';
+                superLabel.style.borderRadius = '6px';
+                superLabel.style.textAlign = 'center';
+                superLabel.style.border = '2px solid #ffcc80';
+
+                const superInput = document.createElement('input');
+                superInput.type = 'number';
+                superInput.value = '0';
+                superInput.min = '0';
+                superInput.max = '10';
+                superInput.id = `piece-count-${name}-super`;
+                superInput.classList.add('piece-count-input');
+                superInput.style.width = '100%';
+                superInput.style.padding = '8px';
+                superInput.style.fontSize = '1em';
+                superInput.style.textAlign = 'center';
+                superInput.style.border = '2px solid #ffcc80';
+                superInput.style.borderRadius = '6px';
+                superInput.style.fontWeight = 'bold';
+
+                superCol.appendChild(superLabel);
+                superCol.appendChild(superInput);
+
+                gradesContainer.appendChild(rareCol);
+                gradesContainer.appendChild(epicCol);
+                gradesContainer.appendChild(superCol);
+
+                pieceEl.append(previewContainer, gradesContainer);
                 sectionGrid.appendChild(pieceEl);
             });
 
@@ -282,16 +414,47 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- 3. Clear Pieces ---
     function clearPieces() {
         Object.keys(PIECES).forEach(name => {
-            const countInput = document.getElementById(`piece-count-${name}`);
-            if (countInput) {
-                countInput.value = '0';
-            }
+            const grades = ['rare', 'epic', 'super'];
+            grades.forEach(grade => {
+                const countInput = document.getElementById(`piece-count-${name}-${grade}`);
+                if (countInput) {
+                    countInput.value = '0';
+                }
+            });
         });
         solutionSummary.textContent = '';
         solutionsContainer.innerHTML = '';
     }
 
     clearPiecesBtn.addEventListener('click', clearPieces);
+
+    // --- 4. Random Fill Pieces ---
+    function randomFillPieces() {
+        Object.keys(PIECES).forEach(name => {
+            const grades = ['rare', 'epic', 'super'];
+            grades.forEach(grade => {
+                const countInput = document.getElementById(`piece-count-${name}-${grade}`);
+                if (countInput) {
+                    // 등급별 랜덤 범위: 레어 0~3, 에픽 0~2, 슈퍼에픽 0~1
+                    let maxValue;
+                    if (grade === 'rare') {
+                        maxValue = 4; // 0~3
+                    } else if (grade === 'epic') {
+                        maxValue = 3; // 0~2
+                    } else { // super
+                        maxValue = 2; // 0~1
+                    }
+                    const randomValue = Math.floor(Math.random() * maxValue);
+                    countInput.value = randomValue.toString();
+                }
+            });
+        });
+        solutionSummary.textContent = '🎲 랜덤 숫자가 입력되었습니다!';
+        solutionsContainer.innerHTML = '';
+    }
+
+    const randomFillBtn = document.getElementById('random-fill-btn');
+    randomFillBtn.addEventListener('click', randomFillPieces);
 
     function solve() {
         // Step 1: Check if map is created
@@ -307,19 +470,24 @@ document.addEventListener('DOMContentLoaded', () => {
         const pieceCounts = {};
 
         Object.entries(PIECES).forEach(([name, piece]) => {
-            const countInput = document.getElementById(`piece-count-${name}`);
-            if (countInput) {
-                const count = parseInt(countInput.value, 10);
-                if (count > 0) {
-                    pieceCounts[name] = count;
-                    for (let i = 0; i < count; i++) {
-                        // We need to create unique names for each piece instance
-                        const uniqueName = `${name}_${i}`;
-                        piecesToUse.push({ name: uniqueName, ...piece, score: piece.defaultScore });
-                        piecesCellCount += piece.shape.length;
+            // 3개 등급별로 개수 입력 확인
+            const grades = ['rare', 'epic', 'super'];
+
+            grades.forEach(grade => {
+                const countInput = document.getElementById(`piece-count-${name}-${grade}`);
+                if (countInput) {
+                    const count = parseInt(countInput.value, 10);
+                    if (count > 0) {
+                        const pieceScore = calculateScore(piece.cellCount, grade);
+                        for (let i = 0; i < count; i++) {
+                            // We need to create unique names for each piece instance
+                            const uniqueName = `${name}_${grade}_${i}`;
+                            piecesToUse.push({ name: uniqueName, ...piece, score: pieceScore, grade: grade });
+                            piecesCellCount += piece.shape.length;
+                        }
                     }
                 }
-            }
+            });
         });
 
         if (piecesToUse.length === 0) {
@@ -389,7 +557,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const solutionsToShow = allSolutions.slice(0, MAX_SOLUTIONS);
                 solutionsToShow.forEach((sol, index) => {
                     const processedSolution = processDlxSolution(sol.solution, sol.score);
-                    renderSolution(processedSolution.board, processedSolution.score, index + 1);
+                    renderSolution(processedSolution.board, processedSolution.score, index + 1, processedSolution.usedPieces, processedSolution.pieceGrades);
                 });
 
                 const elapsed = ((Date.now() - dlxStartTime) / 1000).toFixed(1);
@@ -399,21 +567,21 @@ document.addEventListener('DOMContentLoaded', () => {
                 const solutionCount = solutionsToShow.length;
                 
                 if (solutionCount === 1) {
-                    solutionSummary.textContent = `✅ 최적의 배치 방법을 찾았습니다! (${bestSol.score}점, ${maxFilled}/${totalCells}칸 채움, ${elapsed}초)`;
+                    solutionSummary.textContent = `✅ 최적의 배치 방법을 찾았습니다! (저항: ${bestSol.score}, ${maxFilled}/${totalCells}칸 채움, ${elapsed}초)`;
                 } else {
-                    solutionSummary.textContent = `✅ ${solutionCount}개의 해결책을 찾았습니다! (최고: ${bestSol.score}점, ${maxFilled}/${totalCells}칸 채움, ${elapsed}초)`;
+                    solutionSummary.textContent = `✅ ${solutionCount}개의 해결책을 찾았습니다! (최고 저항: ${bestSol.score}, ${maxFilled}/${totalCells}칸 채움, ${elapsed}초)`;
                 }
 
             } else if (bestSolution.length > 0) {
                 // 해결책이 없지만 bestSolution은 있는 경우 (이론적으로는 발생하지 않아야 함)
                 const processedSolution = processDlxSolution(bestSolution, bestScoreFound);
                 solutionsContainer.innerHTML = '';
-                renderSolution(processedSolution.board, processedSolution.score, 1);
+                renderSolution(processedSolution.board, processedSolution.score, 1, processedSolution.usedPieces, processedSolution.pieceGrades);
                 
                 const elapsed = ((Date.now() - dlxStartTime) / 1000).toFixed(1);
                 const maxFilled = processedSolution.board.filter(id => id > 0).length;
                 const totalCells = board.filter(id => id >= 0).length;
-                solutionSummary.textContent = `✅ 최적의 배치 방법을 찾았습니다! (${bestScoreFound}점, ${maxFilled}/${totalCells}칸 채움, ${elapsed}초)`;
+                solutionSummary.textContent = `✅ 최적의 배치 방법을 찾았습니다! (저항: ${bestScoreFound}, ${maxFilled}/${totalCells}칸 채움, ${elapsed}초)`;
             } else {
                 const elapsed = ((Date.now() - dlxStartTime) / 1000).toFixed(1);
                 solutionSummary.textContent = `❌ 배치 방법을 찾지 못했습니다. (${elapsed}초)`;
@@ -434,6 +602,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         let pieceId = 1;
         const usedPiecesDetails = [];
+        const pieceGrades = {}; // pieceId -> grade 매핑
         let sumOfPieceCells = 0;
 
         solution.forEach(node => {
@@ -444,8 +613,10 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             if (pieceNode.pieceInfo) {
                 const { piece, pos } = pieceNode.pieceInfo;
-                placePiece(newBoard, piece.shape, pos[0], pos[1], pieceId++);
-                usedPiecesDetails.push({ name: piece.name, score: piece.score, shape: piece.shape });
+                const currentPieceId = pieceId++;
+                placePiece(newBoard, piece.shape, pos[0], pos[1], currentPieceId);
+                pieceGrades[currentPieceId] = piece.grade || 'rare'; // grade 정보 저장
+                usedPiecesDetails.push({ name: piece.name, score: piece.score, shape: piece.shape, grade: piece.grade });
                 sumOfPieceCells += piece.shape.length;
             }
         });
@@ -461,7 +632,7 @@ document.addEventListener('DOMContentLoaded', () => {
         usedPiecesDetails.forEach(p => console.log(`  - ${p.name} (Score: ${p.score}, Cells: ${p.shape.length})`));
         console.log("------------------------------------");
 
-        return { board: newBoard, score: score, usedPieces: usedPiecesDetails };
+        return { board: newBoard, score: score, usedPieces: usedPiecesDetails, pieceGrades: pieceGrades };
     }
 
     function canPlace(board, shape, row, col) {
@@ -497,7 +668,45 @@ document.addEventListener('DOMContentLoaded', () => {
         return colors;
     }
 
-    function renderSolution(board, totalScore = 0, solutionNumber = 1) {
+    function blendColors(baseColor, tintColor) {
+        // Parse base color (HSL format)
+        const hslMatch = baseColor.match(/hsl\((\d+),\s*(\d+)%,\s*(\d+)%\)/);
+        if (!hslMatch) return baseColor;
+
+        const h = parseInt(hslMatch[1]);
+        const s = parseInt(hslMatch[2]);
+        const l = parseInt(hslMatch[3]);
+
+        // Parse tint color (RGBA format)
+        const rgbaMatch = tintColor.match(/rgba\((\d+),\s*(\d+),\s*(\d+),\s*([\d.]+)\)/);
+        if (!rgbaMatch) return baseColor;
+
+        const tintR = parseInt(rgbaMatch[1]);
+        const tintG = parseInt(rgbaMatch[2]);
+        const tintB = parseInt(rgbaMatch[3]);
+        const tintA = parseFloat(rgbaMatch[4]);
+
+        // Convert HSL to RGB
+        const hslToRgb = (h, s, l) => {
+            s /= 100;
+            l /= 100;
+            const k = n => (n + h / 30) % 12;
+            const a = s * Math.min(l, 1 - l);
+            const f = n => l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)));
+            return [Math.round(255 * f(0)), Math.round(255 * f(8)), Math.round(255 * f(4))];
+        };
+
+        const [baseR, baseG, baseB] = hslToRgb(h, s, l);
+
+        // Blend colors using alpha compositing
+        const blendedR = Math.round(baseR * (1 - tintA) + tintR * tintA);
+        const blendedG = Math.round(baseG * (1 - tintA) + tintG * tintA);
+        const blendedB = Math.round(baseB * (1 - tintA) + tintB * tintA);
+
+        return `rgb(${blendedR}, ${blendedG}, ${blendedB})`;
+    }
+
+    function renderSolution(board, totalScore = 0, solutionNumber = 1, usedPieces = [], pieceGrades = {}) {
         // Create wrapper for solution
         const solutionWrapper = document.createElement('div');
         solutionWrapper.classList.add('solution-wrapper');
@@ -507,13 +716,13 @@ document.addEventListener('DOMContentLoaded', () => {
         solutionHeader.classList.add('solution-header');
 
         // Count pieces used and cells filled
-        const usedPieces = new Set(board.filter(id => id > 0));
+        const uniquePieceIds = new Set(board.filter(id => id > 0));
         const filledCells = board.filter(id => id > 0).length;
         const totalCells = board.filter(id => id >= 0).length;
 
         solutionHeader.innerHTML = `
             <span class="solution-number">해결책 #${solutionNumber}</span>
-            <span class="solution-stats">블록 ${usedPieces.size}개 사용 | ${filledCells}/${totalCells} 칸 채움 | 점수: ${totalScore}점</span>
+            <span class="solution-stats">블록 ${uniquePieceIds.size}개 사용 | ${filledCells}/${totalCells} 칸 채움 | 저항: ${totalScore}</span>
         `;
         solutionWrapper.appendChild(solutionHeader);
 
@@ -540,8 +749,22 @@ document.addEventListener('DOMContentLoaded', () => {
             const col = i % GRID_SIZE;
 
             if (pieceId > 0) {
-                // Set background color
-                cell.style.backgroundColor = pieceColors[pieceId - 1];
+                // Apply grade-based color
+                const grade = pieceGrades[pieceId] || 'rare';
+                let finalColor;
+
+                if (grade === 'rare') {
+                    // 초록색
+                    finalColor = 'hsl(120, 60%, 60%)';
+                } else if (grade === 'epic') {
+                    // 보라색
+                    finalColor = 'hsl(280, 60%, 60%)';
+                } else if (grade === 'super') {
+                    // 연한 빨강
+                    finalColor = 'hsl(10, 70%, 65%)';
+                }
+
+                cell.style.backgroundColor = finalColor;
                 cell.style.position = 'relative';
 
                 // Add borders between different pieces
