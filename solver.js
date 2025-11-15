@@ -125,7 +125,21 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function shapeToString(shape) {
-        return JSON.stringify(shape);
+        // 정규화된 shape를 안정적인 문자열로 변환
+        const normalized = normalizeShape(shape);
+        // 좌표를 정렬한 후 문자열로 변환
+        const sorted = [...normalized].sort((a, b) => {
+            if (a[0] !== b[0]) return a[0] - b[0];
+            return a[1] - b[1];
+        });
+        return sorted.map(([r, c]) => `${r},${c}`).join('|');
+    }
+
+    function stringToShape(str) {
+        return str.split('|').map(coord => {
+            const [r, c] = coord.split(',').map(Number);
+            return [r, c];
+        });
     }
 
     function generateOrientations(baseShape) {
@@ -137,7 +151,7 @@ document.addEventListener('DOMContentLoaded', () => {
             orientations.add(shapeToString(flipShape(currentShape)));
             currentShape = rotateShape(currentShape);
         }
-        return Array.from(orientations).map(s => JSON.parse(s));
+        return Array.from(orientations).map(s => stringToShape(s));
     }
 
     // Score calculation by grade
@@ -152,264 +166,404 @@ document.addEventListener('DOMContentLoaded', () => {
         return cellCount * GRADE_SCORES[grade];
     }
 
-    // --- Base Piece Definitions ---
-    const BASE_PIECES = {
-        '1x1': { shape: [[0,0]], color: '#A9DFBF' },
-        '1x2': { shape: [[0,0], [0,1]], color: '#A9DFBF' },
-        '1x3': { shape: [[0,0], [0,1], [0,2]], color: '#A9DFBF' },
-        '1x4': { shape: [[0,0], [0,1], [0,2], [0,3]], color: '#AED6F1' },
-        '2x2': { shape: [[0,0], [0,1], [1,0], [1,1]], color: '#AED6F1' },
-        '2x4': { shape: [[0,0], [0,1], [0,2], [0,3], [1,0], [1,1], [1,2], [1,3]], color: '#D7BDE2' },
-        'L3': { shape: [[0,0], [1,0], [1,1]], color: '#A2D9CE' },
-        'L4': { shape: [[0,0], [1,0], [2,0], [2,1]], color: '#AED6F1' },
-        'T4': { shape: [[0,1], [1,0], [1,1], [1,2]], color: '#A9CCE3' },
-        'Plus5': { shape: [[0,1], [1,0], [1,1], [1,2], [2,1]], color: '#D2B4DE' },
-        'T5': { shape: [[0,0], [0,1], [0,2], [1,1], [2,1]], color: '#D2B4DE' },
-        'P5_alt': { shape: [[0,1], [0,2], [1,1], [2,0], [2,1]], color: '#D2B4DE' },
-        'L5': { shape: [[0,0], [0,1], [0,2], [1,2], [2,2]], color: '#D2B4DE' },
-        'U5': { shape: [[0,0], [0,2], [1,0], [1,1], [1,2]], color: '#D2B4DE' },
-        'Complex9_1': { shape: [[0,0], [1,0], [1,1], [2,0], [2,1], [3,0], [3,1], [4,1]], color: '#FFD700' },
-        'Complex8_1': { shape: [[0,1], [0,2], [1,1], [1,2], [2,0], [2,1], [2,2], [2,3]], color: '#FF8C00' },
-        'Complex8_2': { shape: [[0,1], [1,0], [1,1], [1,2], [2,0], [2,1], [2,2], [3,1]], color: '#FF4500' },
+    // --- Set Definitions ---
+    const SET_INFO = {
+        'dealer-radiance': { name: '광휘', color: '#FFD700', icon: '⚔️✨' },
+        'dealer-penetration': { name: '관통', color: '#FF6B6B', icon: '⚔️🎯' },
+        'striker-element': { name: '원소', color: '#4ECDC4', icon: '💪🌊' },
+        'striker-fracture': { name: '파쇄', color: '#95E1D3', icon: '💪💥' },
+        'supporter-blessing': { name: '축복', color: '#F38181', icon: '🛡️✨' },
+        'supporter-brand': { name: '낙인', color: '#AA96DA', icon: '🛡️🔥' },
+        'supporter-regeneration': { name: '재생', color: '#FCBAD3', icon: '🛡️💚' }
     };
 
+    // 세트 효과 저항 증가량: 9/12/15/18/21칸 단계마다 265 저항
+    const SET_BONUS_RESISTANCE = 265;
+    const SET_BONUS_THRESHOLDS = [9, 12, 15, 18, 21];
+
+    // Calculate set bonus resistance based on cell counts
+    function calculateSetBonus(setCellCounts) {
+        let totalBonus = 0;
+        const setBonusDetails = {};
+
+        Object.entries(setCellCounts).forEach(([setKey, cellCount]) => {
+            let bonus = 0;
+            let reachedThresholds = [];
+
+            for (const threshold of SET_BONUS_THRESHOLDS) {
+                if (cellCount >= threshold) {
+                    bonus += SET_BONUS_RESISTANCE;
+                    reachedThresholds.push(threshold);
+                }
+            }
+
+            if (bonus > 0) {
+                setBonusDetails[setKey] = {
+                    cellCount: cellCount,
+                    bonus: bonus,
+                    thresholds: reachedThresholds
+                };
+                totalBonus += bonus;
+            }
+        });
+
+        return { totalBonus, setBonusDetails };
+    }
+
+    // --- Base Piece Definitions ---
+    // 5칸 이하 조각 템플릿
+    // 기본 조각 템플릿 (회전/반전 전)
+    const BASE_TEMPLATES = {
+        '1x1': { shape: [[0,0]] },
+        '1x2': { shape: [[0,0], [0,1]] },
+        '1x3': { shape: [[0,0], [0,1], [0,2]] },
+        '1x4': { shape: [[0,0], [0,1], [0,2], [0,3]] },
+        '2x2': { shape: [[0,0], [0,1], [1,0], [1,1]] },
+        'L3': { shape: [[0,0], [1,0], [1,1]] },
+        'L4': { shape: [[0,0], [1,0], [2,0], [2,1]] },
+        'T4': { shape: [[0,1], [1,0], [1,1], [1,2]] },
+        'Plus5': { shape: [[0,1], [1,0], [1,1], [1,2], [2,1]] },
+        'T5': { shape: [[0,0], [0,1], [0,2], [1,1], [2,1]] },
+        'P5_alt': { shape: [[0,1], [0,2], [1,1], [2,0], [2,1]] },
+        'L5': { shape: [[0,0], [0,1], [0,2], [1,2], [2,2]] },
+        'U5': { shape: [[0,0], [0,2], [1,0], [1,1], [1,2]] }
+    };
+
+    // 8칸 유니크 조각 템플릿
+    const UNIQUE_BASE_TEMPLATES = {
+        '2x4': { shape: [[0,0], [0,1], [0,2], [0,3], [1,0], [1,1], [1,2], [1,3]] },
+        'Complex9_1': { shape: [[0,0], [1,0], [1,1], [2,0], [2,1], [3,0], [3,1], [4,1]] },
+        'Complex8_1': { shape: [[0,1], [0,2], [1,1], [1,2], [2,0], [2,1], [2,2], [2,3]] },
+        'Complex8_2': { shape: [[0,1], [1,0], [1,1], [1,2], [2,0], [2,1], [2,2], [3,1]] }
+    };
+
+    // 모든 방향을 별도의 조각으로 확장
+    const COMMON_PIECE_TEMPLATES = {};
+    Object.entries(BASE_TEMPLATES).forEach(([baseName, baseData]) => {
+        const orientations = generateOrientations(baseData.shape);
+        orientations.forEach((orientationShape, index) => {
+            const fullName = orientations.length > 1 ? `${baseName}-${index}` : baseName;
+            COMMON_PIECE_TEMPLATES[fullName] = { shape: orientationShape };
+        });
+    });
+
+    // 유니크 조각도 동일하게 확장
+    const UNIQUE_PIECE_TEMPLATES = {};
+    Object.entries(UNIQUE_BASE_TEMPLATES).forEach(([baseName, baseData]) => {
+        const orientations = generateOrientations(baseData.shape);
+        orientations.forEach((orientationShape, index) => {
+            const fullName = orientations.length > 1 ? `${baseName}-${index}` : baseName;
+            UNIQUE_PIECE_TEMPLATES[fullName] = { shape: orientationShape };
+        });
+    });
+
+    // Build BASE_PIECES
+    const BASE_PIECES = {};
+
+    Object.keys(SET_INFO).forEach(setKey => {
+        const setColor = SET_INFO[setKey].color;
+
+        // 각 세트에 5칸 이하 조각들 추가
+        Object.entries(COMMON_PIECE_TEMPLATES).forEach(([pieceName, pieceData]) => {
+            const fullName = `${setKey}-${pieceName}`;
+            BASE_PIECES[fullName] = {
+                shape: pieceData.shape,
+                color: setColor,
+                set: setKey
+            };
+        });
+
+        // 각 세트에 8칸 유니크 조각들 추가
+        Object.entries(UNIQUE_PIECE_TEMPLATES).forEach(([pieceName, pieceData]) => {
+            const fullName = `${setKey}-${pieceName}`;
+            BASE_PIECES[fullName] = {
+                shape: pieceData.shape,
+                color: setColor,
+                set: setKey,
+                isUnique: true // 유니크 조각 표시
+            };
+        });
+    });
+
     // --- Final PIECES object, generated from BASE_PIECES ---
+    // 템플릿이 이미 모든 orientation을 포함하므로 그대로 사용
     const PIECES = {};
-    Object.entries(BASE_PIECES).forEach(([baseName, piece]) => {
-        const orientations = generateOrientations(piece.shape);
+    Object.entries(BASE_PIECES).forEach(([pieceName, piece]) => {
         const cellCount = piece.shape.length;
 
-        if (orientations.length === 1) {
-            PIECES[baseName] = {
-                shape: orientations[0],
-                color: piece.color,
-                cellCount: cellCount
-            };
-        } else {
-            orientations.forEach((orientation, index) => {
-                const pieceName = `${baseName}_${index + 1}`;
-                PIECES[pieceName] = {
-                    shape: orientation,
-                    color: piece.color,
-                    cellCount: cellCount
-                };
-            });
-        }
+        PIECES[pieceName] = {
+            shape: piece.shape,
+            color: piece.color,
+            cellCount: cellCount,
+            set: piece.set || null,
+            isUnique: piece.isUnique || false
+        };
     });
+
+    // 조각 생성 완료
+    console.log(`조각 생성 완료: ${Object.keys(PIECES).length}개`);
+
+    // Helper function to create grade input
+    function createGradeInput(pieceName, grade, gradeConfig) {
+        const col = document.createElement('div');
+        col.style.display = 'flex';
+        col.style.flexDirection = 'column';
+        col.style.gap = '6px';
+        col.style.flex = '1';
+
+        const label = document.createElement('div');
+        label.textContent = gradeConfig.label;
+        label.style.fontSize = '0.9em';
+        label.style.fontWeight = '600';
+        label.style.color = gradeConfig.color;
+        label.style.backgroundColor = gradeConfig.bgColor;
+        label.style.padding = '8px';
+        label.style.borderRadius = '6px';
+        label.style.textAlign = 'center';
+        label.style.border = `2px solid ${gradeConfig.borderColor}`;
+
+        const input = document.createElement('input');
+        input.type = 'number';
+        input.value = '0';
+        input.min = '0';
+        input.max = '10';
+        input.id = `piece-count-${pieceName}-${grade}`;
+        input.classList.add('piece-count-input');
+        input.style.width = '100%';
+        input.style.padding = '8px';
+        input.style.fontSize = '1em';
+        input.style.textAlign = 'center';
+        input.style.border = `2px solid ${gradeConfig.borderColor}`;
+        input.style.borderRadius = '6px';
+        input.style.fontWeight = 'bold';
+
+        col.appendChild(label);
+        col.appendChild(input);
+        return col;
+    }
+
+    // Helper function to create piece preview
+    function createPiecePreview(piece) {
+        const previewContainer = document.createElement('div');
+        previewContainer.classList.add('piece-preview');
+
+        const previewGrid = document.createElement('div');
+        const shape = piece.shape;
+        const maxRows = Math.max(...shape.map(p => p[0])) + 1;
+        const maxCols = Math.max(...shape.map(p => p[1])) + 1;
+
+        previewGrid.style.display = 'grid';
+        previewGrid.style.gridTemplateColumns = `repeat(${maxCols}, 20px)`;
+        previewGrid.style.gridTemplateRows = `repeat(${maxRows}, 20px)`;
+        previewGrid.style.gap = '2px';
+
+        for (let r = 0; r < maxRows; r++) {
+            for (let c = 0; c < maxCols; c++) {
+                const cell = document.createElement('div');
+                cell.classList.add('preview-cell');
+                cell.style.width = '20px';
+                cell.style.height = '20px';
+                cell.style.border = '1px solid #ddd';
+                cell.style.borderRadius = '3px';
+                if (shape.some(p => p[0] === r && p[1] === c)) {
+                    cell.style.backgroundColor = piece.color;
+                } else {
+                    cell.style.backgroundColor = 'transparent';
+                }
+                previewGrid.appendChild(cell);
+            }
+        }
+
+        previewContainer.appendChild(previewGrid);
+        return previewContainer;
+    }
 
     function createPiecePalette() {
         piecePalette.innerHTML = '';
 
-        // Group pieces by size
-        const piecesBySize = {
-            'small': [],    // 1-3 blocks
-            'medium': [],   // 4 blocks
-            'five': [],     // 5 blocks
-            'unique': []    // 6+ blocks (unique shapes)
+        const gradeConfigs = {
+            rare: { label: '🟢 레어', color: '#1e7e34', bgColor: '#d4edda', borderColor: '#c3e6cb' },
+            epic: { label: '🔵 에픽', color: '#4527a0', bgColor: '#e1bee7', borderColor: '#ce93d8' },
+            super: { label: '⭐ 슈퍼', color: '#e65100', bgColor: '#ffe0b2', borderColor: '#ffcc80' }
         };
 
-        Object.entries(PIECES).forEach(([name, piece]) => {
-            // Filter out specific pieces
-            if (name === 'Complex8_1_2' || name === 'Complex8_1_3' || name === 'Complex9_1_4' || name === 'Complex9_1_2') {
-                return;
-            }
+        // Get pieces-section parent
+        const piecesSection = piecePalette.parentElement;
 
-            const size = piece.shape.length;
-            if (size <= 3) {
-                piecesBySize.small.push([name, piece]);
-            } else if (size === 4) {
-                piecesBySize.medium.push([name, piece]);
-            } else if (size === 5) {
-                piecesBySize.five.push([name, piece]);
-            } else {
-                piecesBySize.unique.push([name, piece]);
-            }
+        // Create tab buttons container
+        const tabButtons = document.createElement('div');
+        tabButtons.style.display = 'flex';
+        tabButtons.style.gap = '5px';
+        tabButtons.style.flexWrap = 'wrap';
+        tabButtons.style.marginBottom = '15px';
+        tabButtons.style.position = 'sticky';
+        tabButtons.style.top = '0';
+        tabButtons.style.backgroundColor = 'white';
+        tabButtons.style.zIndex = '100';
+        tabButtons.style.paddingTop = '10px';
+        tabButtons.style.paddingBottom = '10px';
+
+        // Create tab content container
+        const tabContents = document.createElement('div');
+
+        // Define tabs: 7개 세트 탭 + 1개 유니크 탭
+        const tabs = [];
+
+        // 7개 세트 탭 추가 (5칸 이하 조각)
+        Object.entries(SET_INFO).forEach(([setKey, setData]) => {
+            tabs.push({
+                id: setKey,
+                name: `${setData.icon} ${setData.name}`,
+                description: `${setData.name} 세트 5칸 이하 조각`
+            });
         });
 
-        // Create sections for each size category
-        const sections = [
-            { key: 'small', title: '🟢 1~3칸', color: '#27AE60', bgColor: '#E8F8F5', borderColor: '#27AE60' },
-            { key: 'medium', title: '🔵 4칸', color: '#2E86DE', bgColor: '#EBF5FB', borderColor: '#2E86DE' },
-            { key: 'five', title: '🟣 5칸', color: '#8E44AD', bgColor: '#F4ECF7', borderColor: '#8E44AD' },
-            { key: 'unique', title: '⭐ 5칸 이상 (UNIQUE)', color: '#E67E22', bgColor: '#FEF5E7', borderColor: '#E67E22' }
-        ];
+        // 유니크 탭 추가 (8칸 조각)
+        tabs.push({
+            id: 'unique',
+            name: '⭐ 유니크',
+            description: '모든 세트의 8칸 유니크 조각'
+        });
 
-        sections.forEach(section => {
-            const sectionEl = document.createElement('div');
-            sectionEl.classList.add('piece-section');
-            sectionEl.style.backgroundColor = section.bgColor;
-            sectionEl.style.border = `3px solid ${section.borderColor}`;
+        let activeTabId = tabs[0].id; // 첫 번째 세트 탭을 기본 활성 탭으로
 
-            const sectionTitle = document.createElement('h4');
-            sectionTitle.textContent = section.title;
-            sectionTitle.style.color = section.color;
-            sectionTitle.style.borderBottom = `3px solid ${section.color}`;
-            sectionTitle.style.fontWeight = 'bold';
-            sectionTitle.style.fontSize = '1.3em';
-            sectionEl.appendChild(sectionTitle);
+        // Create tabs
+        tabs.forEach((tab, index) => {
+            // Tab button
+            const tabBtn = document.createElement('button');
+            tabBtn.textContent = tab.name;
+            tabBtn.className = 'tab-btn';
+            tabBtn.dataset.tabId = tab.id;
+            tabBtn.style.padding = '12px 20px';
+            tabBtn.style.border = 'none';
+            tabBtn.style.borderRadius = '8px 8px 0 0';
+            tabBtn.style.cursor = 'pointer';
+            tabBtn.style.fontWeight = 'bold';
+            tabBtn.style.fontSize = '1em';
+            tabBtn.style.transition = 'all 0.3s';
 
-            const sectionGrid = document.createElement('div');
-            sectionGrid.classList.add('piece-grid');
+            if (index === 0) {
+                tabBtn.style.background = 'linear-gradient(135deg, #667eea, #764ba2)';
+                tabBtn.style.color = 'white';
+            } else {
+                tabBtn.style.background = '#e0e0e0';
+                tabBtn.style.color = '#666';
+            }
 
-            piecesBySize[section.key].forEach(([name, piece]) => {
+            tabBtn.addEventListener('click', () => {
+                activeTabId = tab.id;
+                // Update button styles
+                tabButtons.querySelectorAll('.tab-btn').forEach(btn => {
+                    if (btn.dataset.tabId === activeTabId) {
+                        btn.style.background = 'linear-gradient(135deg, #667eea, #764ba2)';
+                        btn.style.color = 'white';
+                    } else {
+                        btn.style.background = '#e0e0e0';
+                        btn.style.color = '#666';
+                    }
+                });
+                // Update content visibility
+                tabContents.querySelectorAll('.tab-content').forEach(content => {
+                    content.style.display = content.dataset.tabId === activeTabId ? 'block' : 'none';
+                });
+            });
+
+            tabButtons.appendChild(tabBtn);
+
+            // Tab content
+            const tabContent = document.createElement('div');
+            tabContent.className = 'tab-content';
+            tabContent.dataset.tabId = tab.id;
+            tabContent.style.display = index === 0 ? 'block' : 'none';
+            tabContent.style.padding = '20px';
+            tabContent.style.background = 'rgba(255, 255, 255, 0.9)';
+            tabContent.style.borderRadius = '0 8px 8px 8px';
+            tabContent.style.border = '2px solid #667eea';
+
+            // Tab description
+            const tabDesc = document.createElement('div');
+            tabDesc.textContent = `📌 ${tab.description}`;
+            tabDesc.style.marginBottom = '15px';
+            tabDesc.style.padding = '10px';
+            tabDesc.style.background = 'rgba(102, 126, 234, 0.1)';
+            tabDesc.style.borderRadius = '6px';
+            tabDesc.style.fontWeight = '600';
+            tabContent.appendChild(tabDesc);
+
+            // Piece grid
+            const pieceGrid = document.createElement('div');
+            pieceGrid.classList.add('piece-grid');
+            pieceGrid.style.display = 'grid';
+            pieceGrid.style.gridTemplateColumns = 'repeat(auto-fill, minmax(280px, 1fr))';
+            pieceGrid.style.gap = '15px';
+
+            // Get pieces for this tab
+            let piecesForTab = [];
+            if (tab.id === 'unique') {
+                // 유니크 탭: 첫 번째 세트의 8칸 조각들만 표시
+                const firstSetKey = Object.keys(SET_INFO)[0]; // 첫 번째 세트
+                Object.entries(PIECES).forEach(([name, piece]) => {
+                    if (piece.isUnique && piece.set === firstSetKey) {
+                        piecesForTab.push([name, piece]);
+                    }
+                });
+            } else {
+                // 세트 탭: 해당 세트의 5칸 이하 조각들
+                Object.entries(PIECES).forEach(([name, piece]) => {
+                    if (piece.set === tab.id && !piece.isUnique) {
+                        piecesForTab.push([name, piece]);
+                    }
+                });
+            }
+
+            // Create piece items
+            piecesForTab.forEach(([name, piece]) => {
                 const pieceEl = document.createElement('div');
                 pieceEl.classList.add('piece-item');
-                pieceEl.style.padding = '8px';
+                pieceEl.style.padding = '12px';
+                pieceEl.style.background = 'white';
+                pieceEl.style.borderRadius = '8px';
+                pieceEl.style.border = '2px solid #ddd';
+                pieceEl.style.transition = 'all 0.3s';
+                pieceEl.addEventListener('mouseenter', () => {
+                    pieceEl.style.borderColor = '#667eea';
+                    pieceEl.style.boxShadow = '0 4px 8px rgba(102, 126, 234, 0.3)';
+                });
+                pieceEl.addEventListener('mouseleave', () => {
+                    pieceEl.style.borderColor = '#ddd';
+                    pieceEl.style.boxShadow = 'none';
+                });
 
-                // 조각 미리보기 컨테이너 (고정 크기)
-                const previewContainer = document.createElement('div');
-                previewContainer.classList.add('piece-preview');
+                // Preview - 유니크 탭일 경우 골드 색상 사용
+                const displayPiece = tab.id === 'unique' ? { ...piece, color: '#FFD700' } : piece;
+                const preview = createPiecePreview(displayPiece);
+                pieceEl.appendChild(preview);
 
-                // 내부 그리드 (실제 조각 모양)
-                const previewGrid = document.createElement('div');
-                const shape = piece.shape;
-
-                const maxRows = Math.max(...shape.map(p => p[0])) + 1;
-                const maxCols = Math.max(...shape.map(p => p[1])) + 1;
-
-                previewGrid.style.gridTemplateColumns = `repeat(${maxCols}, 20px)`;
-                previewGrid.style.gridTemplateRows = `repeat(${maxRows}, 20px)`;
-
-                for (let r = 0; r < maxRows; r++) {
-                    for (let c = 0; c < maxCols; c++) {
-                        const cell = document.createElement('div');
-                        cell.classList.add('preview-cell');
-                        if (shape.some(p => p[0] === r && p[1] === c)) {
-                            cell.style.backgroundColor = piece.color;
-                        }
-                        previewGrid.appendChild(cell);
-                    }
-                }
-
-                previewContainer.appendChild(previewGrid);
-
-                // 등급별 개수 입력 컨테이너 (가로 배치)
+                // Grades container
                 const gradesContainer = document.createElement('div');
                 gradesContainer.style.display = 'flex';
                 gradesContainer.style.gap = '10px';
-                gradesContainer.style.flex = '1';
-                gradesContainer.style.alignItems = 'center';
+                gradesContainer.style.marginTop = '10px';
 
-                // 레어 등급
-                const rareCol = document.createElement('div');
-                rareCol.style.display = 'flex';
-                rareCol.style.flexDirection = 'column';
-                rareCol.style.gap = '6px';
-                rareCol.style.flex = '1';
+                gradesContainer.appendChild(createGradeInput(name, 'rare', gradeConfigs.rare));
+                gradesContainer.appendChild(createGradeInput(name, 'epic', gradeConfigs.epic));
+                gradesContainer.appendChild(createGradeInput(name, 'super', gradeConfigs.super));
 
-                const rareLabel = document.createElement('div');
-                rareLabel.textContent = `🟢 레어`;
-                rareLabel.style.fontSize = '0.9em';
-                rareLabel.style.fontWeight = '600';
-                rareLabel.style.color = '#1e7e34';
-                rareLabel.style.backgroundColor = '#d4edda';
-                rareLabel.style.padding = '8px';
-                rareLabel.style.borderRadius = '6px';
-                rareLabel.style.textAlign = 'center';
-                rareLabel.style.border = '2px solid #c3e6cb';
-
-                const rareInput = document.createElement('input');
-                rareInput.type = 'number';
-                rareInput.value = '0';
-                rareInput.min = '0';
-                rareInput.max = '10';
-                rareInput.id = `piece-count-${name}-rare`;
-                rareInput.classList.add('piece-count-input');
-                rareInput.style.width = '100%';
-                rareInput.style.padding = '8px';
-                rareInput.style.fontSize = '1em';
-                rareInput.style.textAlign = 'center';
-                rareInput.style.border = '2px solid #c3e6cb';
-                rareInput.style.borderRadius = '6px';
-                rareInput.style.fontWeight = 'bold';
-
-                rareCol.appendChild(rareLabel);
-                rareCol.appendChild(rareInput);
-
-                // 에픽 등급
-                const epicCol = document.createElement('div');
-                epicCol.style.display = 'flex';
-                epicCol.style.flexDirection = 'column';
-                epicCol.style.gap = '6px';
-                epicCol.style.flex = '1';
-
-                const epicLabel = document.createElement('div');
-                epicLabel.textContent = `🔵 에픽`;
-                epicLabel.style.fontSize = '0.9em';
-                epicLabel.style.fontWeight = '600';
-                epicLabel.style.color = '#4527a0';
-                epicLabel.style.backgroundColor = '#e1bee7';
-                epicLabel.style.padding = '8px';
-                epicLabel.style.borderRadius = '6px';
-                epicLabel.style.textAlign = 'center';
-                epicLabel.style.border = '2px solid #ce93d8';
-
-                const epicInput = document.createElement('input');
-                epicInput.type = 'number';
-                epicInput.value = '0';
-                epicInput.min = '0';
-                epicInput.max = '10';
-                epicInput.id = `piece-count-${name}-epic`;
-                epicInput.classList.add('piece-count-input');
-                epicInput.style.width = '100%';
-                epicInput.style.padding = '8px';
-                epicInput.style.fontSize = '1em';
-                epicInput.style.textAlign = 'center';
-                epicInput.style.border = '2px solid #ce93d8';
-                epicInput.style.borderRadius = '6px';
-                epicInput.style.fontWeight = 'bold';
-
-                epicCol.appendChild(epicLabel);
-                epicCol.appendChild(epicInput);
-
-                // 슈퍼에픽 등급
-                const superCol = document.createElement('div');
-                superCol.style.display = 'flex';
-                superCol.style.flexDirection = 'column';
-                superCol.style.gap = '6px';
-                superCol.style.flex = '1';
-
-                const superLabel = document.createElement('div');
-                superLabel.textContent = `⭐ 슈퍼`;
-                superLabel.style.fontSize = '0.9em';
-                superLabel.style.fontWeight = '600';
-                superLabel.style.color = '#e65100';
-                superLabel.style.backgroundColor = '#ffe0b2';
-                superLabel.style.padding = '8px';
-                superLabel.style.borderRadius = '6px';
-                superLabel.style.textAlign = 'center';
-                superLabel.style.border = '2px solid #ffcc80';
-
-                const superInput = document.createElement('input');
-                superInput.type = 'number';
-                superInput.value = '0';
-                superInput.min = '0';
-                superInput.max = '10';
-                superInput.id = `piece-count-${name}-super`;
-                superInput.classList.add('piece-count-input');
-                superInput.style.width = '100%';
-                superInput.style.padding = '8px';
-                superInput.style.fontSize = '1em';
-                superInput.style.textAlign = 'center';
-                superInput.style.border = '2px solid #ffcc80';
-                superInput.style.borderRadius = '6px';
-                superInput.style.fontWeight = 'bold';
-
-                superCol.appendChild(superLabel);
-                superCol.appendChild(superInput);
-
-                gradesContainer.appendChild(rareCol);
-                gradesContainer.appendChild(epicCol);
-                gradesContainer.appendChild(superCol);
-
-                pieceEl.append(previewContainer, gradesContainer);
-                sectionGrid.appendChild(pieceEl);
+                pieceEl.appendChild(gradesContainer);
+                pieceGrid.appendChild(pieceEl);
             });
 
-            sectionEl.appendChild(sectionGrid);
-            piecePalette.appendChild(sectionEl);
+            tabContent.appendChild(pieceGrid);
+            tabContents.appendChild(tabContent);
         });
+
+        // Insert tab buttons before piece-palette
+        piecesSection.insertBefore(tabButtons, piecePalette);
+
+        // Add tab contents to piece-palette
+        piecePalette.appendChild(tabContents);
     }
+
 
     // --- 3. Clear Pieces ---
     function clearPieces() {
@@ -470,35 +624,25 @@ document.addEventListener('DOMContentLoaded', () => {
     uploadStatus.textContent = '⏳ 이미지 분석기 로딩 중...';
 
     function onCvReady() {
-        console.log('OpenCV is ready.');
         uploadStatus.textContent = '✅ 이미지 분석기 준비 완료';
         uploadStatus.style.color = '#10b981';
         uploadBtn.style.pointerEvents = 'auto';
         uploadBtn.style.cursor = 'pointer';
         uploadBtn.style.opacity = '1';
-        console.log('Image analyzer is ready!');
     }
 
     // Wait for OpenCV to load and initialize
     function checkOpenCV() {
         if (typeof cv !== 'undefined') {
-            // Check if OpenCV is already ready
             if (cv.Mat) {
-                console.log('OpenCV already loaded');
                 onCvReady();
             } else {
-                // Set callback for when it's ready
-                cv.onRuntimeInitialized = () => {
-                    console.log('OpenCV initialized via callback');
-                    onCvReady();
-                };
+                cv.onRuntimeInitialized = onCvReady;
             }
         } else {
-            // If cv is not defined yet, check again after 100ms
             setTimeout(checkOpenCV, 100);
         }
     }
-
     checkOpenCV();
 
     // 사용법 모달
@@ -520,7 +664,426 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
+    // 디버그 모달
+    const debugModal = document.getElementById('debug-modal');
+    const closeDebugModal = document.getElementById('close-debug-modal');
+    const debugContent = document.getElementById('debug-content');
+
+    closeDebugModal?.addEventListener('click', () => {
+        debugModal.style.display = 'none';
+    });
+
+    window.addEventListener('click', (e) => {
+        if (e.target === debugModal) {
+            debugModal.style.display = 'none';
+        }
+    });
+
+    function showDebugModal(debugData) {
+        debugContent.innerHTML = '';
+
+        debugData.forEach((pieceDebug, index) => {
+            const pieceSection = document.createElement('div');
+            pieceSection.style.border = '2px solid #667eea';
+            pieceSection.style.borderRadius = '10px';
+            pieceSection.style.padding = '15px';
+            pieceSection.style.background = '#f8f9fa';
+
+            const title = document.createElement('h3');
+            title.textContent = `조각 ${index + 1}`;
+            title.style.marginTop = '0';
+            title.style.color = '#667eea';
+            pieceSection.appendChild(title);
+
+            const canvasContainer = document.createElement('div');
+            canvasContainer.style.display = 'grid';
+            canvasContainer.style.gridTemplateColumns = 'repeat(auto-fit, minmax(250px, 1fr))';
+            canvasContainer.style.gap = '15px';
+            canvasContainer.style.marginBottom = '15px';
+
+            // 원본 이미지
+            const originalDiv = document.createElement('div');
+            const originalTitle = document.createElement('h4');
+            originalTitle.textContent = '1. 원본';
+            originalTitle.style.marginTop = '0';
+            originalDiv.appendChild(originalTitle);
+            // 캔버스 스타일 추가
+            pieceDebug.originalCanvas.style.maxWidth = '100%';
+            pieceDebug.originalCanvas.style.border = '1px solid #ccc';
+            pieceDebug.originalCanvas.style.borderRadius = '5px';
+            originalDiv.appendChild(pieceDebug.originalCanvas);
+            canvasContainer.appendChild(originalDiv);
+
+            // 처리된 이미지
+            const processedDiv = document.createElement('div');
+            const processedTitle = document.createElement('h4');
+            processedTitle.textContent = '2. 처리 (배경 제거)';
+            processedTitle.style.marginTop = '0';
+            processedDiv.appendChild(processedTitle);
+            // 캔버스 스타일 추가
+            pieceDebug.processedCanvas.style.maxWidth = '100%';
+            pieceDebug.processedCanvas.style.border = '1px solid #ccc';
+            pieceDebug.processedCanvas.style.borderRadius = '5px';
+            processedDiv.appendChild(pieceDebug.processedCanvas);
+            canvasContainer.appendChild(processedDiv);
+
+            // 그리드 분석
+            const gridDiv = document.createElement('div');
+            const gridTitle = document.createElement('h4');
+            gridTitle.textContent = '3. 그리드 분석';
+            gridTitle.style.marginTop = '0';
+            gridDiv.appendChild(gridTitle);
+            // 캔버스 스타일 추가
+            pieceDebug.gridCanvas.style.maxWidth = '100%';
+            pieceDebug.gridCanvas.style.border = '1px solid #ccc';
+            pieceDebug.gridCanvas.style.borderRadius = '5px';
+            gridDiv.appendChild(pieceDebug.gridCanvas);
+            canvasContainer.appendChild(gridDiv);
+
+            pieceSection.appendChild(canvasContainer);
+
+            // 분석 정보
+            const info = document.createElement('pre');
+            info.style.background = 'white';
+            info.style.padding = '10px';
+            info.style.borderRadius = '5px';
+            info.style.fontSize = '0.9em';
+            info.style.overflow = 'auto';
+            info.textContent = pieceDebug.info;
+            pieceSection.appendChild(info);
+
+            debugContent.appendChild(pieceSection);
+        });
+
+        debugModal.style.display = 'block';
+    }
+
     // 조각 이미지 인식 (그리드 분석 방식)
+    // 모든 조각이 세트에 속하므로 항상 세트 선택 필요
+    // (이미지 인식으로는 세트를 알 수 없음)
+    function needsSetSelection(pieceName) {
+        return true; // 모든 조각이 세트 선택 필요
+    }
+
+    // Show set selection modal with tabs for each image
+    function showSetSelectionModal(imagesData) {
+        return new Promise((resolve) => {
+            const modal = document.createElement('div');
+            modal.style.position = 'fixed';
+            modal.style.zIndex = '2000';
+            modal.style.left = '0';
+            modal.style.top = '0';
+            modal.style.width = '100%';
+            modal.style.height = '100%';
+            modal.style.background = 'rgba(0,0,0,0.7)';
+            modal.style.display = 'flex';
+            modal.style.alignItems = 'center';
+            modal.style.justifyContent = 'center';
+
+            const modalContent = document.createElement('div');
+            modalContent.style.background = 'white';
+            modalContent.style.padding = '30px';
+            modalContent.style.borderRadius = '15px';
+            modalContent.style.maxWidth = '800px';
+            modalContent.style.maxHeight = '85vh';
+            modalContent.style.overflowY = 'auto';
+            modalContent.style.width = '90%';
+
+            const title = document.createElement('h2');
+            title.textContent = '🎯 사진별 세트 선택';
+            title.style.marginTop = '0';
+            title.style.color = '#667eea';
+            title.style.textAlign = 'center';
+            modalContent.appendChild(title);
+
+            const description = document.createElement('p');
+            description.innerHTML = `<strong>${imagesData.length}장의 사진</strong>에서 인식된 조각들입니다.<br>각 사진마다 세트를 선택하면 해당 사진의 모든 조각이 선택한 세트로 들어갑니다.`;
+            description.style.marginBottom = '20px';
+            description.style.textAlign = 'center';
+            description.style.lineHeight = '1.6';
+            modalContent.appendChild(description);
+
+            // Create tabs
+            const tabButtons = document.createElement('div');
+            tabButtons.style.display = 'flex';
+            tabButtons.style.gap = '5px';
+            tabButtons.style.marginBottom = '20px';
+            tabButtons.style.flexWrap = 'nowrap';
+            tabButtons.style.overflowX = 'auto';
+            tabButtons.style.justifyContent = 'space-evenly';
+            tabButtons.style.position = 'sticky';
+            tabButtons.style.top = '0';
+            tabButtons.style.backgroundColor = 'white';
+            tabButtons.style.zIndex = '10';
+            tabButtons.style.paddingTop = '10px';
+            tabButtons.style.paddingBottom = '10px';
+
+            const tabContents = document.createElement('div');
+            tabContents.style.minHeight = '300px';
+
+            let activeTabIndex = 0;
+            const imageSetSelectors = []; // 각 이미지의 세트 선택기 저장
+
+            imagesData.forEach((imageData, imageIndex) => {
+                const { fileName, pieces } = imageData;
+
+                // Tab button
+                const tabBtn = document.createElement('button');
+                tabBtn.textContent = `📷 ${fileName || `이미지 ${imageIndex + 1}`}`;
+                tabBtn.style.padding = '10px 15px';
+                tabBtn.style.border = 'none';
+                tabBtn.style.borderRadius = '8px 8px 0 0';
+                tabBtn.style.cursor = 'pointer';
+                tabBtn.style.fontWeight = 'bold';
+                tabBtn.style.fontSize = '0.9em';
+                tabBtn.style.transition = 'all 0.3s';
+                tabBtn.style.flex = '1';
+                tabBtn.style.whiteSpace = 'nowrap';
+
+                if (imageIndex === 0) {
+                    tabBtn.style.background = 'linear-gradient(135deg, #667eea, #764ba2)';
+                    tabBtn.style.color = 'white';
+                } else {
+                    tabBtn.style.background = '#e0e0e0';
+                    tabBtn.style.color = '#666';
+                }
+
+                tabBtn.addEventListener('click', () => {
+                    activeTabIndex = imageIndex;
+                    // Update tab styles
+                    tabButtons.querySelectorAll('button').forEach((btn, idx) => {
+                        if (idx === imageIndex) {
+                            btn.style.background = 'linear-gradient(135deg, #667eea, #764ba2)';
+                            btn.style.color = 'white';
+                        } else {
+                            btn.style.background = '#e0e0e0';
+                            btn.style.color = '#666';
+                        }
+                    });
+                    // Update content visibility
+                    tabContents.querySelectorAll('.image-tab-content').forEach((content, idx) => {
+                        content.style.display = idx === imageIndex ? 'block' : 'none';
+                    });
+                });
+
+                tabButtons.appendChild(tabBtn);
+
+                // Tab content
+                const tabContent = document.createElement('div');
+                tabContent.className = 'image-tab-content';
+                tabContent.style.display = imageIndex === 0 ? 'block' : 'none';
+
+                const imageTitle = document.createElement('h3');
+                imageTitle.textContent = `📷 ${fileName || `이미지 ${imageIndex + 1}`}`;
+                imageTitle.style.color = '#667eea';
+                imageTitle.style.marginBottom = '15px';
+                tabContent.appendChild(imageTitle);
+
+                // 사진 전체의 세트 선택기
+                const setSelectBlock = document.createElement('div');
+                setSelectBlock.style.marginBottom = '20px';
+                setSelectBlock.style.padding = '20px';
+                setSelectBlock.style.background = 'linear-gradient(135deg, rgba(102, 126, 234, 0.1), rgba(118, 75, 162, 0.1))';
+                setSelectBlock.style.borderRadius = '10px';
+                setSelectBlock.style.border = '2px solid #667eea';
+
+                const setLabel = document.createElement('div');
+                setLabel.textContent = '🎯 이 사진의 모든 조각이 들어갈 세트:';
+                setLabel.style.fontWeight = 'bold';
+                setLabel.style.marginBottom = '10px';
+                setLabel.style.fontSize = '1.1em';
+                setLabel.style.color = '#667eea';
+                setSelectBlock.appendChild(setLabel);
+
+                const setSelector = document.createElement('select');
+                setSelector.style.width = '100%';
+                setSelector.style.padding = '12px';
+                setSelector.style.fontSize = '1.1em';
+                setSelector.style.borderRadius = '8px';
+                setSelector.style.border = '2px solid #667eea';
+                setSelector.style.fontWeight = 'bold';
+
+                const defaultOption = document.createElement('option');
+                defaultOption.value = '';
+                defaultOption.textContent = '세트를 선택하세요';
+                setSelector.appendChild(defaultOption);
+
+                Object.entries(SET_INFO).forEach(([setKey, setData]) => {
+                    const option = document.createElement('option');
+                    option.value = setKey;
+                    option.textContent = `${setData.icon} ${setData.name}`;
+                    setSelector.appendChild(option);
+                });
+
+                setSelectBlock.appendChild(setSelector);
+                tabContent.appendChild(setSelectBlock);
+
+                // 인식된 조각 목록 표시
+                const piecesTitle = document.createElement('h4');
+                piecesTitle.textContent = `📦 인식된 조각 (총 ${pieces.length}종류)`;
+                piecesTitle.style.color = '#555';
+                piecesTitle.style.marginBottom = '10px';
+                tabContent.appendChild(piecesTitle);
+
+                const piecesList = document.createElement('div');
+                piecesList.style.maxHeight = '300px';
+                piecesList.style.overflowY = 'auto';
+                piecesList.style.padding = '10px';
+                piecesList.style.background = '#f9f9f9';
+                piecesList.style.borderRadius = '8px';
+
+                pieces.forEach((data, pieceIndex) => {
+                    const { pieceName, grade, count } = data;
+
+                    const pieceBlock = document.createElement('div');
+                    pieceBlock.style.marginBottom = '10px';
+                    pieceBlock.style.padding = '12px';
+                    pieceBlock.style.background = 'white';
+                    pieceBlock.style.borderRadius = '6px';
+                    pieceBlock.style.border = '1px solid #ddd';
+                    pieceBlock.style.display = 'flex';
+                    pieceBlock.style.alignItems = 'center';
+                    pieceBlock.style.gap = '15px';
+
+                    // 조각 미리보기 생성 (템플릿 이름으로 조각 찾기)
+                    const templateData = COMMON_PIECE_TEMPLATES[pieceName] || UNIQUE_PIECE_TEMPLATES[pieceName];
+                    if (templateData) {
+                        // 임시 조각 데이터 생성 (회색으로 표시)
+                        const tempPiece = {
+                            shape: templateData.shape,
+                            color: '#999999' // 회색 (세트 선택 전)
+                        };
+                        const preview = createPiecePreview(tempPiece);
+                        preview.style.flex = '0 0 auto';
+                        pieceBlock.appendChild(preview);
+                    }
+
+                    // 조각 정보
+                    const pieceInfo = document.createElement('div');
+                    pieceInfo.style.flex = '1';
+
+                    const pieceTitleDiv = document.createElement('div');
+                    pieceTitleDiv.textContent = pieceName;
+                    pieceTitleDiv.style.fontWeight = 'bold';
+                    pieceTitleDiv.style.fontSize = '0.95em';
+                    pieceTitleDiv.style.marginBottom = '4px';
+                    pieceInfo.appendChild(pieceTitleDiv);
+
+                    const pieceDetailsDiv = document.createElement('div');
+                    pieceDetailsDiv.textContent = `등급: ${grade}`;
+                    pieceDetailsDiv.style.fontSize = '0.85em';
+                    pieceDetailsDiv.style.color = '#666';
+                    pieceInfo.appendChild(pieceDetailsDiv);
+
+                    pieceBlock.appendChild(pieceInfo);
+
+                    // 개수 표시 (오른쪽 큰 숫자)
+                    const countBadge = document.createElement('div');
+                    countBadge.textContent = `×${count}`;
+                    countBadge.style.fontSize = '1.2em';
+                    countBadge.style.fontWeight = 'bold';
+                    countBadge.style.color = '#667eea';
+                    countBadge.style.padding = '8px 15px';
+                    countBadge.style.background = 'rgba(102, 126, 234, 0.1)';
+                    countBadge.style.borderRadius = '8px';
+                    countBadge.style.flex = '0 0 auto';
+                    pieceBlock.appendChild(countBadge);
+
+                    piecesList.appendChild(pieceBlock);
+                });
+
+                tabContent.appendChild(piecesList);
+
+                // 이미지 선택 정보 저장
+                imageSetSelectors.push({
+                    fileName,
+                    pieces,
+                    selector: setSelector
+                });
+
+                tabContents.appendChild(tabContent);
+            });
+
+            modalContent.appendChild(tabButtons);
+            modalContent.appendChild(tabContents);
+
+            const buttonContainer = document.createElement('div');
+            buttonContainer.style.display = 'flex';
+            buttonContainer.style.gap = '10px';
+            buttonContainer.style.marginTop = '20px';
+
+            const confirmBtn = document.createElement('button');
+            confirmBtn.textContent = '✅ 모든 사진 확인';
+            confirmBtn.style.flex = '1';
+            confirmBtn.style.padding = '12px';
+            confirmBtn.style.fontSize = '1em';
+            confirmBtn.style.fontWeight = 'bold';
+            confirmBtn.style.border = 'none';
+            confirmBtn.style.borderRadius = '8px';
+            confirmBtn.style.cursor = 'pointer';
+            confirmBtn.style.background = 'linear-gradient(135deg, #667eea, #764ba2)';
+            confirmBtn.style.color = 'white';
+
+            confirmBtn.addEventListener('click', () => {
+                const results = [];
+                let allSelected = true;
+
+                // 모든 사진의 세트 선택 검증
+                imageSetSelectors.forEach((imageData, imageIndex) => {
+                    const selectedSet = imageData.selector.value;
+
+                    if (!selectedSet) {
+                        allSelected = false;
+                        imageData.selector.style.borderColor = '#f5576c';
+                        imageData.selector.style.background = '#fff5f5';
+                    } else {
+                        // 이 사진의 모든 조각에 선택된 세트 적용
+                        imageData.pieces.forEach(piece => {
+                            results.push({
+                                basePieceName: piece.pieceName,
+                                selectedSet: selectedSet,
+                                grade: piece.grade,
+                                count: piece.count
+                            });
+                        });
+                    }
+                });
+
+                if (!allSelected) {
+                    alert('모든 사진의 세트를 선택해주세요!');
+                    return;
+                }
+
+                document.body.removeChild(modal);
+                resolve(results);
+            });
+
+            const cancelBtn = document.createElement('button');
+            cancelBtn.textContent = '❌ 취소';
+            cancelBtn.style.flex = '1';
+            cancelBtn.style.padding = '12px';
+            cancelBtn.style.fontSize = '1em';
+            cancelBtn.style.fontWeight = 'bold';
+            cancelBtn.style.border = 'none';
+            cancelBtn.style.borderRadius = '8px';
+            cancelBtn.style.cursor = 'pointer';
+            cancelBtn.style.background = '#e0e0e0';
+            cancelBtn.style.color = '#666';
+
+            cancelBtn.addEventListener('click', () => {
+                document.body.removeChild(modal);
+                resolve(null);
+            });
+
+            buttonContainer.appendChild(confirmBtn);
+            buttonContainer.appendChild(cancelBtn);
+            modalContent.appendChild(buttonContainer);
+
+            modal.appendChild(modalContent);
+            document.body.appendChild(modal);
+        });
+    }
+
     imageUpload?.addEventListener('change', async (e) => {
         const files = e.target.files;
         if (files.length === 0) return;
@@ -529,32 +1092,47 @@ document.addEventListener('DOMContentLoaded', () => {
         uploadStatus.style.color = '#667eea';
 
         try {
-            // 모든 이미지에서 인식된 조각 합산
-            const allResults = {};
+            // 각 이미지별로 인식된 조각 데이터 저장
+            const imagesData = [];
+            const finalResults = [];
 
             for (let i = 0; i < files.length; i++) {
                 const file = files[i];
-                console.log(`Processing image ${i + 1}/${files.length}: ${file.name}`);
-
                 const pieceData = await recognizePiecesWithCV(file);
 
-                // 결과 합산
-                for (const result of pieceData) {
-                    const key = `${result.pieceName}-${result.grade}`;
-                    allResults[key] = (allResults[key] || 0) + result.count;
+                if (pieceData && pieceData.length > 0) {
+                    imagesData.push({
+                        fileName: file.name,
+                        pieces: pieceData
+                    });
                 }
             }
 
-            // 합산 결과를 배열로 변환
-            const finalResults = Object.entries(allResults).map(([key, count]) => {
-                const [pieceName, grade] = key.split('-');
-                return { pieceName, grade, count };
-            });
-
-            if (finalResults.length === 0) {
+            if (imagesData.length === 0) {
                 uploadStatus.textContent = '⚠️ 조각 정보를 찾을 수 없습니다. 이미지가 선명한지 확인해주세요.';
                 uploadStatus.style.color = '#f59e0b';
                 return;
+            }
+
+            // 모든 이미지의 조각에 대해 세트 선택
+            uploadStatus.textContent = `🎯 ${imagesData.length}개 이미지의 조각 세트를 선택해주세요...`;
+
+            const selections = await showSetSelectionModal(imagesData);
+
+            if (!selections) {
+                uploadStatus.textContent = '❌ 세트 선택이 취소되었습니다.';
+                uploadStatus.style.color = '#f59e0b';
+                return;
+            }
+
+            // Add selected pieces with set information
+            for (const selection of selections) {
+                const fullPieceName = `${selection.selectedSet}-${selection.basePieceName}`;
+                finalResults.push({
+                    pieceName: fullPieceName,
+                    grade: selection.grade,
+                    count: selection.count
+                });
             }
 
             fillPiecesFromCV(finalResults);
@@ -1681,16 +2259,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // 새로운 이미지 기반 조각 인식 시스템 (OCR 제거)
 async function recognizePiecesWithCV(file) {
-    console.log("Starting image-based piece recognition...");
-
     // 1. 이미지 로드
     const img = new Image();
     await new Promise(resolve => {
         img.onload = resolve;
         img.src = URL.createObjectURL(file);
     });
-
-    console.log(`Image loaded: ${img.width}x${img.height}`);
 
     // 2. OpenCV Mat으로 변환
     const src = cv.imread(img);
@@ -1699,7 +2273,6 @@ async function recognizePiecesWithCV(file) {
 
     // 3. 조각 박스 감지
     const boxes = detectPieceBoxes(src, gray, img);
-    console.log(`Detected ${boxes.length} piece boxes`);
 
     if (boxes.length === 0) {
         src.delete();
@@ -1708,36 +2281,44 @@ async function recognizePiecesWithCV(file) {
         return [];
     }
 
+    // ===== 디버그 데이터 수집 =====
+    // 각 조각의 처리 과정을 시각화하기 위한 데이터 (원본, 처리된 이미지, 그리드 분석)
+    // 주의: 데이터는 수집되지만 모달은 표시되지 않음 (GitHub Pages 배포용)
+    const debugData = [];
+
     // 4. 각 박스에서 조각 패턴 추출 및 매칭
     const pieceCounts = {}; // { pieceName-grade: count }
 
     for (let i = 0; i < boxes.length; i++) {
         const box = boxes[i];
 
-        // 배경색으로 등급 판별
+        // 배경색으로 등급 판별 (파란색=rare, 보라색=epic, 빨간색/노란색=super)
         const { grade, bgColor } = detectGradeFromBox(src, box);
 
-        // 그리드 분석으로 조각 모양 추출 (배경색 기반)
-        const extractedShape = extractShapeFromImage(src, box, bgColor, i);
+        // 그리드 분석으로 조각 모양 추출 + 디버그용 캔버스 생성
+        const { shape: extractedShape, debug } = extractShapeFromImageWithDebug(src, box, bgColor, i, grade);
 
-        console.log(`Piece ${i}: Extracted shape:`, extractedShape);
-
-        // 추출한 모양으로 조각 이름 찾기
+        // 추출한 모양으로 조각 이름 찾기 (템플릿 매칭)
         const pieceName = findPieceNameByShape(extractedShape);
+
+        // 디버그 정보에 인식 결과 추가
+        debug.info += `\n결과: ${pieceName ? `✓ ${pieceName} (${grade})` : '✗ 인식 실패'}`;
+        debug.info += `\n추출된 shape: ${JSON.stringify(extractedShape)}`;
+        debugData.push(debug);
 
         if (pieceName) {
             const key = `${pieceName}-${grade}`;
             pieceCounts[key] = (pieceCounts[key] || 0) + 1;
-            console.log(`✓ Piece ${i}: ${pieceName} (${grade})`);
-        } else {
-            console.warn(`✗ Piece ${i}: Could not identify (shape: ${JSON.stringify(extractedShape)})`);
         }
     }
 
     // 5. 결과를 배열로 변환
     const result = [];
     for (const [key, count] of Object.entries(pieceCounts)) {
-        const [pieceName, grade] = key.split('-');
+        // 마지막 '-'를 기준으로 조각 이름과 등급 분리
+        const lastDashIndex = key.lastIndexOf('-');
+        const pieceName = key.substring(0, lastDashIndex);
+        const grade = key.substring(lastDashIndex + 1);
         result.push({
             pieceName: pieceName,
             grade: grade,
@@ -1745,12 +2326,16 @@ async function recognizePiecesWithCV(file) {
         });
     }
 
+    // ===== 디버그 모달 표시 비활성화 (GitHub Pages 배포용) =====
+    // 각 조각의 처리 과정을 시각화한 모달 창 표시
+    // (원본 이미지, 배경 제거된 이미지, 그리드 분석 결과)
+    // showDebugModal(debugData);
+
     // 6. 메모리 정리
     src.delete();
     gray.delete();
     URL.revokeObjectURL(img.src);
 
-    console.log(`Recognition complete: ${result.length} piece types found`);
     return result;
 }
 
@@ -1764,8 +2349,6 @@ function detectPieceBoxes(src, gray, img) {
     const contours = new cv.MatVector();
     const hierarchy = new cv.Mat();
     cv.findContours(binary, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
-
-    console.log(`Found ${contours.size()} contours`);
 
     // 조각 박스 필터링
     const minArea = (img.width / 20) * (img.height / 20); // 최소 면적
@@ -1793,15 +2376,10 @@ function detectPieceBoxes(src, gray, img) {
     const avgY = yValues.reduce((sum, y) => sum + y, 0) / yValues.length;
     const yVariance = yValues.reduce((sum, y) => sum + Math.pow(y - avgY, 2), 0) / yValues.length;
     const yStdDev = Math.sqrt(yVariance);
-
-    console.log(`Y standard deviation: ${yStdDev.toFixed(1)} (threshold: ${img.height / 10})`);
-
-    // 그리드 레이아웃 감지 (Y 좌표 변동이 크면)
     const isGridLayout = yStdDev > img.height / 10;
 
     if (isGridLayout) {
         // 그리드: Y 좌표로 먼저 정렬 (위->아래), 같은 행에서는 X로 정렬 (왼->오)
-        console.log('Grid layout detected - sorting by rows');
         boxes.sort((a, b) => {
             const rowDiff = a.y - b.y;
             if (Math.abs(rowDiff) > img.height / 20) {
@@ -1811,15 +2389,12 @@ function detectPieceBoxes(src, gray, img) {
         });
     } else {
         // 가로 배치: X 좌표로만 정렬 (왼쪽에서 오른쪽)
-        console.log('Horizontal layout detected - sorting left to right');
         boxes.sort((a, b) => a.x - b.x);
 
         // 가로 배치에서는 첫 번째 박스의 Y 좌표와 높이를 기준으로 모든 박스 정렬
         if (boxes.length > 0) {
             const referenceY = boxes[0].y;
             const referenceHeight = boxes[0].height;
-
-            console.log(`Aligning all boxes to first box: y=${referenceY}, height=${referenceHeight}`);
 
             boxes.forEach(box => {
                 box.y = referenceY;
@@ -1852,8 +2427,6 @@ function detectGradeFromBox(src, box) {
     const r = mean[0];
     const g = mean[1];
     const b = mean[2];
-
-    console.log(`  Background color: R=${r.toFixed(0)}, G=${g.toFixed(0)}, B=${b.toFixed(0)}`);
 
     // 색상 기반 등급 판별
     // 레어: 파란색 (B가 가장 높음)
@@ -2061,6 +2634,288 @@ function extractShapeFromImage(src, box, bgColor, index) {
     return result;
 }
 
+// 디버그 버전: 처리 과정 시각화
+// ===== 디버그용 조각 추출 함수 =====
+// 조각 모양 추출 + 시각화를 위한 캔버스 3개 생성
+function extractShapeFromImageWithDebug(src, box, bgColor, index, grade) {
+    // 원본 이미지에서 조각 영역만 추출 (여백 8% 제거)
+    const marginLeft = 0.08, marginRight = 0.08, marginTop = 0.08, marginBottom = 0.08;
+    const iconX = box.x + Math.floor(box.width * marginLeft);
+    const iconY = box.y + Math.floor(box.height * marginTop);
+    const iconW = Math.floor(box.width * (1 - marginLeft - marginRight));
+    const iconH = Math.floor(box.height * (1 - marginTop - marginBottom));
+
+    const iconRoi = src.roi(new cv.Rect(iconX, iconY, iconW, iconH));
+
+    // 1. 디버그 캔버스 1: 원본 이미지
+    const originalCanvas = document.createElement('canvas');
+    cv.imshow(originalCanvas, iconRoi);
+
+    // 2. 조각 모양 추출 + 이진화 이미지 생성
+    const { shape, binary, gridInfo, dots, gridSizeX, gridSizeY } = extractShapeFromRoiWithDebug(iconRoi, bgColor, index);
+
+    // 디버그 캔버스 2: 배경 제거된 이진화 이미지
+    const processedCanvas = document.createElement('canvas');
+    cv.imshow(processedCanvas, binary);
+    binary.delete();
+
+    // 디버그 캔버스 3: 그리드 분석 결과 (셀 위치 표시)
+    const gridCanvas = document.createElement('canvas');
+    drawGridAnalysis(gridCanvas, iconRoi, shape, gridInfo, dots, gridSizeX, gridSizeY);
+
+    iconRoi.delete();
+
+    // 디버그 정보 텍스트 생성
+    let info = `조각 ${index + 1}\n`;
+    info += `등급: ${grade}\n`;
+    info += `배경색: R=${bgColor.r}, G=${bgColor.g}, B=${bgColor.b}\n`;
+    info += `크기: ${iconW}x${iconH}\n`;
+    info += gridInfo;
+
+    return {
+        shape,
+        debug: {
+            originalCanvas,      // 원본
+            processedCanvas,     // 배경 제거
+            gridCanvas,          // 그리드 분석
+            info                 // 텍스트 정보
+        }
+    };
+}
+
+// ===== 디버그용 그리드 분석 함수 =====
+// 배경 제거 + 그리드 분석 + 디버그 정보 반환
+function extractShapeFromRoiWithDebug(iconRoi, bgColor, index) {
+    const iconW = iconRoi.cols;
+    const iconH = iconRoi.rows;
+
+    // ===== 1단계: 엣지 검출로 조각 윤곽선 찾기 =====
+    const binary = new cv.Mat();
+    const gray = new cv.Mat();
+
+    cv.cvtColor(iconRoi, gray, cv.COLOR_RGBA2GRAY);
+    const edges = new cv.Mat();
+    cv.Canny(gray, edges, 30, 100);
+
+    const kernel = cv.getStructuringElement(cv.MORPH_RECT, new cv.Size(3, 3));
+    cv.dilate(edges, edges, kernel);
+
+    const edgeContours = new cv.MatVector();
+    const edgeHierarchy = new cv.Mat();
+    cv.findContours(edges, edgeContours, edgeHierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+
+    let maxArea = 0;
+    let maxContourIdx = -1;
+    for (let i = 0; i < edgeContours.size(); i++) {
+        const area = cv.contourArea(edgeContours.get(i));
+        if (area > maxArea) {
+            maxArea = area;
+            maxContourIdx = i;
+        }
+    }
+
+    const edgeMask = cv.Mat.zeros(iconH, iconW, cv.CV_8UC1);
+    if (maxContourIdx >= 0) {
+        cv.drawContours(edgeMask, edgeContours, maxContourIdx, new cv.Scalar(255), cv.FILLED);
+    }
+
+    edgeContours.delete();
+    edgeHierarchy.delete();
+    edges.delete();
+
+    // ===== 2단계: 배경색 제거 (색상 범위 기반) =====
+    const tolerance = 60;
+    const lower = new cv.Mat(iconRoi.rows, iconRoi.cols, iconRoi.type(),
+        [Math.max(0, bgColor.r - tolerance), Math.max(0, bgColor.g - tolerance),
+         Math.max(0, bgColor.b - tolerance), 0]);
+    const upper = new cv.Mat(iconRoi.rows, iconRoi.cols, iconRoi.type(),
+        [Math.min(255, bgColor.r + tolerance), Math.min(255, bgColor.g + tolerance),
+         Math.min(255, bgColor.b + tolerance), 255]);
+
+    const colorMask = new cv.Mat();
+    cv.inRange(iconRoi, lower, upper, colorMask);  // 배경색 영역 찾기
+    cv.bitwise_not(colorMask, colorMask);          // 반전 (조각 영역만 남김)
+
+    lower.delete();
+    upper.delete();
+
+    // ===== 3단계: 엣지 마스크와 색상 마스크 합치기 =====
+    cv.bitwise_or(edgeMask, colorMask, binary);
+    edgeMask.delete();
+    colorMask.delete();
+    gray.delete();
+
+    // ===== 4단계: 노이즈 제거 (모폴로지 연산) =====
+    cv.morphologyEx(binary, binary, cv.MORPH_OPEN, kernel);   // 작은 점 제거
+    cv.morphologyEx(binary, binary, cv.MORPH_CLOSE, kernel);  // 작은 구멍 메우기
+    kernel.delete();
+
+    // ===== 5단계: 윤곽선으로 조각 영역 채우기 =====
+    const contours = new cv.MatVector();
+    const hierarchy = new cv.Mat();
+    cv.findContours(binary, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+
+    for (let i = 0; i < contours.size(); i++) {
+        cv.drawContours(binary, contours, i, new cv.Scalar(255), cv.FILLED);
+    }
+
+    contours.delete();
+    hierarchy.delete();
+
+    // ===== 6단계: 조각의 bounding box 찾기 =====
+    let minX = iconW, maxX = 0, minY = iconH, maxY = 0, totalFilled = 0;
+    for (let y = 0; y < iconH; y++) {
+        for (let x = 0; x < iconW; x++) {
+            if (binary.ucharPtr(y, x)[0] > 128) {
+                totalFilled++;
+                if (x < minX) minX = x;
+                if (x > maxX) maxX = x;
+                if (y < minY) minY = y;
+                if (y > maxY) maxY = y;
+            }
+        }
+    }
+
+    // 조각이 없으면 빈 shape 반환
+    if (totalFilled === 0) {
+        const gridInfo = `그리드: 0x0\n총 픽셀: 0\n`;
+        return { shape: [], binary, gridInfo, dots: [], gridSizeX: 0, gridSizeY: 0 };
+    }
+
+    const pieceW = maxX - minX + 1;
+    const pieceH = maxY - minY + 1;
+
+    // 셀 크기 추정 (가장 작은 변을 기준으로)
+    const minDim = Math.min(pieceW, pieceH);
+    const estimatedCellSize = minDim / Math.max(1, Math.floor(minDim / 20)); // 대략 20px per cell
+
+    // 그리드 크기 계산
+    const gridCols = Math.max(1, Math.round(pieceW / estimatedCellSize));
+    const gridRows = Math.max(1, Math.round(pieceH / estimatedCellSize));
+
+    // 그리드 크기 제한 (1~5칸)
+    const gridSizeX = Math.min(5, Math.max(1, gridCols));
+    const gridSizeY = Math.min(5, Math.max(1, gridRows));
+
+    const actualCellW = pieceW / gridSizeX;
+    const actualCellH = pieceH / gridSizeY;
+
+    let gridInfo = `그리드: ${gridSizeX}x${gridSizeY}\n`;
+    gridInfo += `셀 크기: ${actualCellW.toFixed(1)}x${actualCellH.toFixed(1)}\n`;
+    gridInfo += `총 픽셀: ${totalFilled}\n`;
+
+    // 각 그리드 셀 검사
+    const shape = [];
+    const dots = []; // 디버그용: 각 셀의 중심점
+
+    for (let row = 0; row < gridSizeY; row++) {
+        for (let col = 0; col < gridSizeX; col++) {
+            const cellX = minX + col * actualCellW;
+            const cellY = minY + row * actualCellH;
+            const centerX = cellX + actualCellW / 2;
+            const centerY = cellY + actualCellH / 2;
+
+            // 셀 영역의 픽셀 샘플링 (70% 영역)
+            const sampleMargin = 0.15;
+            const sampleX = Math.floor(cellX + actualCellW * sampleMargin);
+            const sampleY = Math.floor(cellY + actualCellH * sampleMargin);
+            const sampleW = Math.floor(actualCellW * (1 - sampleMargin * 2));
+            const sampleH = Math.floor(actualCellH * (1 - sampleMargin * 2));
+
+            if (sampleW > 0 && sampleH > 0 &&
+                sampleX >= 0 && sampleY >= 0 &&
+                sampleX + sampleW <= iconW &&
+                sampleY + sampleH <= iconH) {
+
+                const cellRoi = binary.roi(new cv.Rect(sampleX, sampleY, sampleW, sampleH));
+                const mean = cv.mean(cellRoi);
+                cellRoi.delete();
+
+                if (mean[0] > 128) {
+                    shape.push([row, col]);
+                    dots.push({ x: centerX, y: centerY, area: sampleW * sampleH });
+                }
+            }
+        }
+    }
+
+    const normalizedShape = normalizeShape(shape);
+
+    return {
+        shape: normalizedShape,
+        binary: binary.clone(),
+        gridInfo,
+        dots,
+        gridSizeX,
+        gridSizeY
+    };
+}
+
+function drawGridAnalysis(canvas, iconRoi, shape, gridInfo, dots, gridSizeX, gridSizeY) {
+    canvas.width = iconRoi.cols;
+    canvas.height = iconRoi.rows;
+    const ctx = canvas.getContext('2d');
+
+    // 원본 이미지를 canvas에 그리기
+    const tempCanvas = document.createElement('canvas');
+    cv.imshow(tempCanvas, iconRoi);
+    ctx.drawImage(tempCanvas, 0, 0);
+
+    // 도트가 없으면 종료
+    if (!dots || dots.length === 0) return;
+
+    // 도트 위치에 파란색 원 그리기 (실제 감지된 도트)
+    ctx.fillStyle = 'rgba(0, 0, 255, 0.5)';
+    ctx.strokeStyle = 'rgba(0, 0, 255, 0.8)';
+    ctx.lineWidth = 2;
+    dots.forEach(dot => {
+        ctx.beginPath();
+        ctx.arc(dot.x, dot.y, 5, 0, 2 * Math.PI);
+        ctx.fill();
+        ctx.stroke();
+    });
+
+    // 그리드가 유효한 경우에만 그리드 라인 그리기
+    if (gridSizeX > 0 && gridSizeY > 0 && dots.length > 1) {
+        const minDotX = Math.min(...dots.map(d => d.x));
+        const minDotY = Math.min(...dots.map(d => d.y));
+        const maxDotX = Math.max(...dots.map(d => d.x));
+        const maxDotY = Math.max(...dots.map(d => d.y));
+
+        // 실제 셀 크기 계산
+        const actualCellW = gridSizeX > 1 ? (maxDotX - minDotX) / (gridSizeX - 1) : 20;
+        const actualCellH = gridSizeY > 1 ? (maxDotY - minDotY) / (gridSizeY - 1) : 20;
+
+        // 그리드 라인 그리기 (빨간색)
+        ctx.strokeStyle = 'rgba(255, 0, 0, 0.5)';
+        ctx.lineWidth = 1;
+
+        for (let i = 0; i <= gridSizeX; i++) {
+            const x = minDotX + (i - (gridSizeX > 1 ? 0 : 0.5)) * actualCellW;
+            ctx.beginPath();
+            ctx.moveTo(x, minDotY - actualCellH * 0.5);
+            ctx.lineTo(x, maxDotY + actualCellH * 0.5);
+            ctx.stroke();
+        }
+
+        for (let i = 0; i <= gridSizeY; i++) {
+            const y = minDotY + (i - (gridSizeY > 1 ? 0 : 0.5)) * actualCellH;
+            ctx.beginPath();
+            ctx.moveTo(minDotX - actualCellW * 0.5, y);
+            ctx.lineTo(maxDotX + actualCellW * 0.5, y);
+            ctx.stroke();
+        }
+
+        // 인식된 셀 표시 (녹색 반투명)
+        ctx.fillStyle = 'rgba(0, 255, 0, 0.3)';
+        shape.forEach(([row, col]) => {
+            const cellX = minDotX + (col - (gridSizeX > 1 ? 0.5 : 0)) * actualCellW;
+            const cellY = minDotY + (row - (gridSizeY > 1 ? 0.5 : 0)) * actualCellH;
+            ctx.fillRect(cellX, cellY, actualCellW, actualCellH);
+        });
+    }
+}
+
 // ROI에서 그리드 패턴 추출 (하이브리드: 엣지 + 색상 기반)
 function extractShapeFromRoi(iconRoi, bgColor, index) {
     const iconW = iconRoi.cols;
@@ -2158,19 +3013,16 @@ function extractShapeFromRoi(iconRoi, bgColor, index) {
         console.log(`  Filled ${contourCount} contours (hybrid: edge + color)`);
     }
 
-    // 실제 조각의 bounding box 찾기
-    let minX = iconW, maxX = 0, minY = iconH, maxY = 0;
-    let totalFilled = 0;
-
+    // 조각의 bounding box 찾기
+    let minX = iconW, maxX = 0, minY = iconH, maxY = 0, totalFilled = 0;
     for (let y = 0; y < iconH; y++) {
         for (let x = 0; x < iconW; x++) {
-            const pixel = binary.ucharPtr(y, x)[0];
-            if (pixel > 128) {
+            if (binary.ucharPtr(y, x)[0] > 128) {
                 totalFilled++;
-                minX = Math.min(minX, x);
-                maxX = Math.max(maxX, x);
-                minY = Math.min(minY, y);
-                maxY = Math.max(maxY, y);
+                if (x < minX) minX = x;
+                if (x > maxX) maxX = x;
+                if (y < minY) minY = y;
+                if (y > maxY) maxY = y;
             }
         }
     }
@@ -2182,7 +3034,6 @@ function extractShapeFromRoi(iconRoi, bgColor, index) {
         return [];
     }
 
-    // 조각의 실제 크기
     const pieceW = maxX - minX + 1;
     const pieceH = maxY - minY + 1;
 
@@ -2205,7 +3056,7 @@ function extractShapeFromRoi(iconRoi, bgColor, index) {
 
     console.log(`  Grid analysis: piece=${pieceW}x${pieceH}, grid=${finalGridRows}x${finalGridCols}, cell=${cellWidth.toFixed(1)}x${cellHeight.toFixed(1)}`);
 
-    // 각 그리드 칸 검사
+    // 각 그리드 셀 검사
     const shape = [];
     for (let row = 0; row < finalGridRows; row++) {
         for (let col = 0; col < finalGridCols; col++) {
@@ -2282,21 +3133,20 @@ function shapesMatch(shape1, shape2) {
 // 추출한 패턴으로 조각 이름 찾기
 function findPieceNameByShape(extractedShape) {
     if (!extractedShape || extractedShape.length === 0) {
-        console.warn('⚠️ Empty shape extracted');
         return null;
     }
 
-    // PIECES 객체에서 매칭되는 조각 찾기
-    for (const [pieceName, pieceData] of Object.entries(PIECES)) {
-        const pieceShape = normalizeShape(pieceData.shape);
+    const normalizedExtracted = normalizeShape(extractedShape);
+    const allTemplates = { ...COMMON_PIECE_TEMPLATES, ...UNIQUE_PIECE_TEMPLATES };
 
-        if (shapesMatch(extractedShape, pieceShape)) {
-            console.log(`✓ Matched shape to ${pieceName}`);
-            return pieceName;
+    for (const [templateName, templateData] of Object.entries(allTemplates)) {
+        const normalizedTemplate = normalizeShape(templateData.shape);
+        if (shapesMatch(normalizedExtracted, normalizedTemplate)) {
+            return templateName;
         }
     }
 
-    console.warn(`⚠️ No matching piece found for shape:`, extractedShape);
+    console.warn(`⚠️ 인식 실패: ${normalizedExtracted.length}칸 조각`);
     return null;
 }
     function fillPiecesFromCV(pieceData) {
@@ -2304,22 +3154,21 @@ function findPieceNameByShape(extractedShape) {
 
         let successCount = 0;
 
-        pieceData.forEach((data, index) => {
+        pieceData.forEach((data) => {
             const { pieceName, grade, count } = data;
-            const countInput = document.getElementById(`piece-count-${pieceName}-${grade}`);
+            const inputId = `piece-count-${pieceName}-${grade}`;
+            const countInput = document.getElementById(inputId);
 
             if (countInput) {
-                // 기존 값에 추가
                 const currentValue = parseInt(countInput.value) || 0;
                 countInput.value = currentValue + count;
-                console.log(`✓ Set piece-count-${pieceName}-${grade} = ${count}`);
                 successCount++;
             } else {
-                console.warn(`✗ Could not find input: piece-count-${pieceName}-${grade}`);
+                console.warn(`⚠️ Input 없음: ${pieceName} (${grade})`);
             }
         });
 
-        console.log(`Successfully filled ${successCount}/${pieceData.length} pieces`);
+        console.log(`✅ ${successCount}/${pieceData.length}개 조각 입력 완료`);
     }
 
     function solve() {
@@ -2361,15 +3210,34 @@ function findPieceNameByShape(extractedShape) {
             return;
         }
 
-        // 높은 점수 조각부터 우선 배치하도록 정렬 (점수 내림차순)
-        // PRIORITIZE_HIGH_SCORE가 false면 정렬 없이도 작동하지만, 탐색 효율성이 떨어질 수 있습니다
+        // 우선순위 세트 읽기 (1, 2, 3순위)
+        const prioritySet1 = document.getElementById('priority-set-1')?.value || '';
+        const prioritySet2 = document.getElementById('priority-set-2')?.value || '';
+        const prioritySet3 = document.getElementById('priority-set-3')?.value || '';
+        const prioritySets = [prioritySet1, prioritySet2, prioritySet3].filter(s => s);
+
+        // 조각 정렬: 1순위 → 2순위 → 3순위 → 높은 점수 → 작은 조각
         if (PRIORITIZE_HIGH_SCORE) {
             piecesToUse.sort((a, b) => {
-                // 먼저 점수로 정렬 (높은 점수 우선)
+                // 1. 우선순위 세트 비교
+                const aPriority = prioritySets.indexOf(a.set);
+                const bPriority = prioritySets.indexOf(b.set);
+
+                // a가 우선순위에 있고 b가 없으면 a를 앞으로
+                if (aPriority >= 0 && bPriority < 0) return -1;
+                // b가 우선순위에 있고 a가 없으면 b를 앞으로
+                if (bPriority >= 0 && aPriority < 0) return 1;
+                // 둘 다 우선순위에 있으면 더 높은 우선순위를 앞으로
+                if (aPriority >= 0 && bPriority >= 0 && aPriority !== bPriority) {
+                    return aPriority - bPriority;
+                }
+
+                // 2. 점수로 정렬 (높은 점수 우선)
                 if (b.score !== a.score) {
                     return b.score - a.score;
                 }
-                // 점수가 같으면 칸 수가 적은 것 우선 (같은 점수면 더 작은 조각을 먼저 사용)
+
+                // 3. 점수가 같으면 칸 수가 적은 것 우선
                 return a.shape.length - b.shape.length;
             });
         }
@@ -2408,13 +3276,53 @@ function findPieceNameByShape(extractedShape) {
             resetGridBtn.disabled = false;
             clearPiecesBtn.disabled = false;
 
-            // 해결책 정렬 (칸 수 우선, 그 다음 점수)
-            allSolutions.sort((a, b) => {
-                if (b.cellsFilled !== a.cellsFilled) {
-                    return b.cellsFilled - a.cellsFilled;
-                }
-                return b.score - a.score;
-            });
+            // 해결책 평가 및 정렬 (우선순위 세트 + 최대 저항)
+            if (prioritySets.length > 0) {
+                // 우선순위가 설정된 경우: 똑똑한 평가
+                allSolutions.forEach(sol => {
+                    const processed = processDlxSolution(sol.solution, sol.score);
+                    const setCellCounts = processed.setCellCounts || {};
+
+                    // 우선순위 점수 계산
+                    let priorityScore = 0;
+                    prioritySets.forEach((prioritySet, index) => {
+                        const cellCount = setCellCounts[prioritySet] || 0;
+                        // 각 threshold 달성시 점수 부여
+                        SET_BONUS_THRESHOLDS.forEach(threshold => {
+                            if (cellCount >= threshold) {
+                                // 1순위는 가중치 1000, 2순위는 100, 3순위는 10
+                                const weight = index === 0 ? 1000 : (index === 1 ? 100 : 10);
+                                priorityScore += weight;
+                            }
+                        });
+                    });
+
+                    sol.priorityScore = priorityScore;
+                    sol.totalResistance = processed.score; // 세트 보너스 포함 총 저항
+                });
+
+                // 정렬: 칸 수 > 총 저항 > 우선순위 점수
+                allSolutions.sort((a, b) => {
+                    // 1. 채운 칸 수가 많을수록 우선
+                    if (b.cellsFilled !== a.cellsFilled) {
+                        return b.cellsFilled - a.cellsFilled;
+                    }
+                    // 2. 총 저항이 높을수록 우선
+                    if (b.totalResistance !== a.totalResistance) {
+                        return b.totalResistance - a.totalResistance;
+                    }
+                    // 3. 우선순위 점수가 높을수록 우선
+                    return b.priorityScore - a.priorityScore;
+                });
+            } else {
+                // 우선순위 없음: 기존 방식 (칸 수 > 점수)
+                allSolutions.sort((a, b) => {
+                    if (b.cellsFilled !== a.cellsFilled) {
+                        return b.cellsFilled - a.cellsFilled;
+                    }
+                    return b.score - a.score;
+                });
+            }
 
             if (allSolutions.length > 0) {
                 solutionsContainer.innerHTML = '';
@@ -2423,7 +3331,7 @@ function findPieceNameByShape(extractedShape) {
                 const solutionsToShow = allSolutions.slice(0, MAX_SOLUTIONS);
                 solutionsToShow.forEach((sol, index) => {
                     const processedSolution = processDlxSolution(sol.solution, sol.score);
-                    renderSolution(processedSolution.board, processedSolution.score, index + 1, processedSolution.usedPieces, processedSolution.pieceGrades);
+                    renderSolution(processedSolution.board, processedSolution.score, index + 1, processedSolution.usedPieces, processedSolution.pieceGrades, processedSolution.setBonusDetails, processedSolution.baseScore, processedSolution.setBonus);
                 });
 
                 const elapsed = ((Date.now() - dlxStartTime) / 1000).toFixed(1);
@@ -2431,18 +3339,28 @@ function findPieceNameByShape(extractedShape) {
                 const maxFilled = bestSol.cellsFilled;
                 const totalCells = board.filter(id => id >= 0).length;
                 const solutionCount = solutionsToShow.length;
-                
+
+                // 우선 세트 정보 추가 (1/2/3순위)
+                let priorityInfo = '';
+                if (prioritySets.length > 0) {
+                    const priorityLabels = ['🥇', '🥈', '🥉'];
+                    const priorityNames = prioritySets.map((set, i) =>
+                        `${priorityLabels[i]} ${SET_INFO[set].name}`
+                    ).join(', ');
+                    priorityInfo = ` [${priorityNames}]`;
+                }
+
                 if (solutionCount === 1) {
-                    solutionSummary.textContent = `✅ 최적의 배치 방법을 찾았습니다! (저항: ${bestSol.score}, ${maxFilled}/${totalCells}칸 채움, ${elapsed}초)`;
+                    solutionSummary.textContent = `✅ 최적의 배치 방법을 찾았습니다!${priorityInfo} (저항: ${bestSol.score}, ${maxFilled}/${totalCells}칸 채움, ${elapsed}초)`;
                 } else {
-                    solutionSummary.textContent = `✅ ${solutionCount}개의 해결책을 찾았습니다! (최고 저항: ${bestSol.score}, ${maxFilled}/${totalCells}칸 채움, ${elapsed}초)`;
+                    solutionSummary.textContent = `✅ ${solutionCount}개의 해결책을 찾았습니다!${priorityInfo} (최고 저항: ${bestSol.score}, ${maxFilled}/${totalCells}칸 채움, ${elapsed}초)`;
                 }
 
             } else if (bestSolution.length > 0) {
                 // 해결책이 없지만 bestSolution은 있는 경우 (이론적으로는 발생하지 않아야 함)
                 const processedSolution = processDlxSolution(bestSolution, bestScoreFound);
                 solutionsContainer.innerHTML = '';
-                renderSolution(processedSolution.board, processedSolution.score, 1, processedSolution.usedPieces, processedSolution.pieceGrades);
+                renderSolution(processedSolution.board, processedSolution.score, 1, processedSolution.usedPieces, processedSolution.pieceGrades, processedSolution.setBonusDetails, processedSolution.baseScore, processedSolution.setBonus);
                 
                 const elapsed = ((Date.now() - dlxStartTime) / 1000).toFixed(1);
                 const maxFilled = processedSolution.board.filter(id => id > 0).length;
@@ -2469,6 +3387,7 @@ function findPieceNameByShape(extractedShape) {
         let pieceId = 1;
         const usedPiecesDetails = [];
         const pieceGrades = {}; // pieceId -> grade 매핑
+        const setCellCounts = {}; // 세트별 칸 수 카운트
         let sumOfPieceCells = 0;
 
         solution.forEach(node => {
@@ -2482,23 +3401,55 @@ function findPieceNameByShape(extractedShape) {
                 const currentPieceId = pieceId++;
                 placePiece(newBoard, piece.shape, pos[0], pos[1], currentPieceId);
                 pieceGrades[currentPieceId] = piece.grade || 'rare'; // grade 정보 저장
-                usedPiecesDetails.push({ name: piece.name, score: piece.score, shape: piece.shape, grade: piece.grade });
+
+                // 세트 정보 추출 및 카운트
+                const pieceSet = piece.set || null;
+                if (pieceSet) {
+                    setCellCounts[pieceSet] = (setCellCounts[pieceSet] || 0) + piece.shape.length;
+                }
+
+                usedPiecesDetails.push({
+                    name: piece.name,
+                    score: piece.score,
+                    shape: piece.shape,
+                    grade: piece.grade,
+                    set: pieceSet
+                });
                 sumOfPieceCells += piece.shape.length;
             }
         });
 
+        // 세트 보너스 계산
+        const { totalBonus, setBonusDetails } = calculateSetBonus(setCellCounts);
+        const finalScore = score + totalBonus;
+
         const actualFilledCells = newBoard.filter(id => id > 0).length;
 
-        console.log(`--- Best Solution Details ---`);
-        console.log(`Total Score: ${score}`);
+        console.log(`--- Solution Details ---`);
+        console.log(`Base Score: ${score}`);
+        console.log(`Set Bonus: ${totalBonus}`);
+        console.log(`Final Score: ${finalScore}`);
         console.log(`Target Fillable Cells: ${targetCellCount}`);
         console.log(`Sum of Cells from Used Pieces: ${sumOfPieceCells}`);
         console.log(`Actual Filled Cells on Board: ${actualFilledCells}`);
         console.log("Used Pieces:");
-        usedPiecesDetails.forEach(p => console.log(`  - ${p.name} (Score: ${p.score}, Cells: ${p.shape.length})`));
+        usedPiecesDetails.forEach(p => console.log(`  - ${p.name} (Score: ${p.score}, Cells: ${p.shape.length}, Set: ${p.set || 'common'})`));
+        console.log("Set Bonuses:");
+        Object.entries(setBonusDetails).forEach(([setKey, details]) => {
+            console.log(`  - ${SET_INFO[setKey].name}: ${details.cellCount}칸, +${details.bonus} 저항 (${details.thresholds.join(', ')}칸 달성)`);
+        });
         console.log("------------------------------------");
 
-        return { board: newBoard, score: score, usedPieces: usedPiecesDetails, pieceGrades: pieceGrades };
+        return {
+            board: newBoard,
+            score: finalScore,
+            baseScore: score,
+            setBonus: totalBonus,
+            setBonusDetails: setBonusDetails,
+            usedPieces: usedPiecesDetails,
+            pieceGrades: pieceGrades,
+            setCellCounts: setCellCounts
+        };
     }
 
     function canPlace(board, shape, row, col) {
@@ -2572,7 +3523,7 @@ function findPieceNameByShape(extractedShape) {
         return `rgb(${blendedR}, ${blendedG}, ${blendedB})`;
     }
 
-    function renderSolution(board, totalScore = 0, solutionNumber = 1, usedPieces = [], pieceGrades = {}) {
+    function renderSolution(board, totalScore = 0, solutionNumber = 1, usedPieces = [], pieceGrades = {}, setBonusDetails = {}, baseScore = 0, setBonus = 0) {
         // Create wrapper for solution
         const solutionWrapper = document.createElement('div');
         solutionWrapper.classList.add('solution-wrapper');
@@ -2586,11 +3537,44 @@ function findPieceNameByShape(extractedShape) {
         const filledCells = board.filter(id => id > 0).length;
         const totalCells = board.filter(id => id >= 0).length;
 
-        solutionHeader.innerHTML = `
+        let headerHTML = `
             <span class="solution-number">해결책 #${solutionNumber}</span>
-            <span class="solution-stats">블록 ${uniquePieceIds.size}개 사용 | ${filledCells}/${totalCells} 칸 채움 | 저항: ${totalScore}</span>
-        `;
+            <span class="solution-stats">블록 ${uniquePieceIds.size}개 사용 | ${filledCells}/${totalCells} 칸 채움 | 총 저항: ${totalScore}`;
+
+        if (setBonus > 0) {
+            headerHTML += ` (기본: ${baseScore} + 세트: ${setBonus})`;
+        }
+        headerHTML += `</span>`;
+
+        solutionHeader.innerHTML = headerHTML;
         solutionWrapper.appendChild(solutionHeader);
+
+        // Add set bonus details if any
+        if (Object.keys(setBonusDetails).length > 0) {
+            const setBonusContainer = document.createElement('div');
+            setBonusContainer.style.padding = '10px';
+            setBonusContainer.style.background = 'rgba(102, 126, 234, 0.1)';
+            setBonusContainer.style.borderRadius = '6px';
+            setBonusContainer.style.marginBottom = '10px';
+            setBonusContainer.style.fontSize = '0.9em';
+
+            const setBonusTitle = document.createElement('div');
+            setBonusTitle.textContent = '🎁 세트 효과 보너스';
+            setBonusTitle.style.fontWeight = 'bold';
+            setBonusTitle.style.marginBottom = '5px';
+            setBonusTitle.style.color = '#667eea';
+            setBonusContainer.appendChild(setBonusTitle);
+
+            Object.entries(setBonusDetails).forEach(([setKey, details]) => {
+                const setInfo = document.createElement('div');
+                setInfo.style.marginLeft = '10px';
+                setInfo.style.marginBottom = '3px';
+                setInfo.textContent = `${SET_INFO[setKey].icon} ${SET_INFO[setKey].name}: ${details.cellCount}칸 → +${details.bonus} 저항 (${details.thresholds.join(', ')}칸 단계 달성)`;
+                setBonusContainer.appendChild(setInfo);
+            });
+
+            solutionWrapper.appendChild(setBonusContainer);
+        }
 
         const solutionGrid = document.createElement('div');
         solutionGrid.classList.add('solution-grid');

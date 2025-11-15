@@ -18,10 +18,11 @@
         </div>
         <h1>🧩 조각 맞추기 자동 계산기</h1>
 
-        <div class="main-layout" style="display: flex; gap: 20px; margin-top: 20px;">
-            <!-- 왼쪽: 맵 섹션 -->
-            <div class="left-section" style="flex: 0 0 auto;">
-                <div class="grid-section">
+        <div class="main-layout" style="display: flex; flex-direction: column; gap: 20px; margin-top: 20px;">
+            <!-- 상단: 섹션 1과 3 나란히 -->
+            <div class="top-row" style="display: flex; gap: 20px;">
+                <!-- 섹션 1: 맵 만들기 -->
+                <div class="grid-section" style="flex: 1;">
                     <h3>1. 맵 만들기 (7x7 그리드)</h3>
                     <p>채우고 싶은 칸을 클릭해서 맵을 만들어주세요.</p>
                     <div class="locked-info">
@@ -34,16 +35,81 @@
                     </div>
                 </div>
 
-                <div class="solver-section" style="margin-top: 20px;">
+                <!-- 섹션 3: 자동 배치 계산 -->
+                <div class="solver-section" style="flex: 1;">
                     <h3>3. 자동 배치 계산</h3>
                     <p>입력한 조각으로 맵을 최대한 채우는 방법을 찾아드립니다.</p>
+
+                    <!-- 세트 우선순위 선택 -->
+                    <div style="margin-bottom: 15px; padding: 15px; background: rgba(102, 126, 234, 0.1); border-radius: 10px;">
+                        <label style="display: block; font-weight: bold; margin-bottom: 12px; color: #667eea;">
+                            🎯 세트 우선순위 (선택사항)
+                        </label>
+
+                        <!-- 1순위 -->
+                        <div style="margin-bottom: 10px;">
+                            <label style="display: block; font-size: 0.9em; font-weight: 600; margin-bottom: 4px; color: #FFD700;">
+                                🥇 1순위
+                            </label>
+                            <select id="priority-set-1" style="width: 100%; padding: 8px; font-size: 0.95em; border-radius: 6px; border: 2px solid #FFD700;">
+                                <option value="">선택 안함</option>
+                                <option value="dealer-radiance">⚔️✨ 딜러-광휘</option>
+                                <option value="dealer-penetration">⚔️🎯 딜러-관통</option>
+                                <option value="striker-element">💪🌊 스트-원소</option>
+                                <option value="striker-fracture">💪💥 스트-파쇄</option>
+                                <option value="supporter-blessing">🛡️✨ 서포터-축복</option>
+                                <option value="supporter-brand">🛡️🔥 서포터-낙인</option>
+                                <option value="supporter-regeneration">🛡️💚 서포터-재생</option>
+                            </select>
+                        </div>
+
+                        <!-- 2순위 -->
+                        <div style="margin-bottom: 10px;">
+                            <label style="display: block; font-size: 0.9em; font-weight: 600; margin-bottom: 4px; color: #C0C0C0;">
+                                🥈 2순위
+                            </label>
+                            <select id="priority-set-2" style="width: 100%; padding: 8px; font-size: 0.95em; border-radius: 6px; border: 2px solid #C0C0C0;">
+                                <option value="">선택 안함</option>
+                                <option value="dealer-radiance">⚔️✨ 딜러-광휘</option>
+                                <option value="dealer-penetration">⚔️🎯 딜러-관통</option>
+                                <option value="striker-element">💪🌊 스트-원소</option>
+                                <option value="striker-fracture">💪💥 스트-파쇄</option>
+                                <option value="supporter-blessing">🛡️✨ 서포터-축복</option>
+                                <option value="supporter-brand">🛡️🔥 서포터-낙인</option>
+                                <option value="supporter-regeneration">🛡️💚 서포터-재생</option>
+                            </select>
+                        </div>
+
+                        <!-- 3순위 -->
+                        <div style="margin-bottom: 10px;">
+                            <label style="display: block; font-size: 0.9em; font-weight: 600; margin-bottom: 4px; color: #CD7F32;">
+                                🥉 3순위
+                            </label>
+                            <select id="priority-set-3" style="width: 100%; padding: 8px; font-size: 0.95em; border-radius: 6px; border: 2px solid #CD7F32;">
+                                <option value="">선택 안함</option>
+                                <option value="dealer-radiance">⚔️✨ 딜러-광휘</option>
+                                <option value="dealer-penetration">⚔️🎯 딜러-관통</option>
+                                <option value="striker-element">💪🌊 스트-원소</option>
+                                <option value="striker-fracture">💪💥 스트-파쇄</option>
+                                <option value="supporter-blessing">🛡️✨ 서포터-축복</option>
+                                <option value="supporter-brand">🛡️🔥 서포터-낙인</option>
+                                <option value="supporter-regeneration">🛡️💚 서포터-재생</option>
+                            </select>
+                        </div>
+
+                        <p style="font-size: 0.85em; margin-top: 8px; color: #666; line-height: 1.4;">
+                            💡 우선순위 세트의 효과를 최대한 받도록 배치합니다.<br>
+                            애매한 칸 수일 때는 다른 세트를 사용해서라도 최대 저항을 달성합니다.
+                        </p>
+                    </div>
+
                     <button id="solve-btn" class="analysis-btn solve-btn">🎯 자동 맞추기 시작</button>
                     <div id="solution-summary" class="solution-summary"></div>
                 </div>
             </div>
 
-            <!-- 오른쪽: 조각 선택 섹션 -->
-            <div class="right-section" style="flex: 1; overflow-y: auto; max-height: 800px;">
+            <!-- 하단: 섹션 2 전체 너비 -->
+            <div class="bottom-row" style="width: 100%;">
                 <div class="pieces-section">
                     <h3>2. 보유 조각 입력</h3>
                     <p>가지고 있는 조각의 개수를 입력해주세요.</p>
@@ -77,12 +143,90 @@
 
     <!-- 사용법 모달 -->
     <div id="usage-modal" style="display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.7); overflow: auto;">
-        <div style="background-color: white; margin: 3% auto; padding: 30px; border-radius: 15px; max-width: 900px; position: relative; box-shadow: 0 4px 20px rgba(0,0,0,0.3);">
+        <div style="background-color: white; margin: 3% auto; padding: 30px; border-radius: 15px; max-width: 900px; max-height: 90vh; overflow-y: auto; position: relative; box-shadow: 0 4px 20px rgba(0,0,0,0.3);">
             <span id="close-modal" style="position: absolute; right: 20px; top: 15px; font-size: 35px; font-weight: bold; cursor: pointer; color: #999; transition: color 0.3s;">&times;</span>
-            <h2 style="margin-top: 0; color: #667eea; text-align: center;">📖 사용법</h2>
-            <img src="사용법1.png" alt="사용법 안내" style="max-width: 100%; height: auto; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
-            <img src="사용법.png" alt="사용법 안내" style="max-width: 100%; height: auto; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
-            이미지 이런식으로 캡처해서 올려주세요.
+            <h2 style="margin-top: 0; color: #667eea; text-align: center;">📖 이미지 업로드 사용법</h2>
+
+            <div style="margin-bottom: 25px;">
+                <h3 style="color: #667eea; margin-bottom: 10px;">1️⃣ 게임 화면 캡처</h3>
+                <p style="color: #555; line-height: 1.6; margin-bottom: 10px;">
+                    해당 경로로 이동해서 조각 보관함 화면을 캡처합니다.
+                </p>
+                <img src="images/1.png" alt="조각 보관함 화면" style="max-width: 100%; height: auto; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); margin-bottom: 20px;">
+                <img src="images/2.png" alt="이미지 업로드 버튼" style="max-width: 100%; height: auto; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); margin-bottom: 20px;">
+            </div>
+
+            <div style="margin-bottom: 25px;">
+                <h3 style="color: #667eea; margin-bottom: 10px;">2️⃣ 세트 효과 선택 및 캡처</h3>
+                <p style="color: #555; line-height: 1.6; margin-bottom: 10px;"></p>
+                <img src="images/3.png" alt="자동 인식 중" style="max-width: 100%; height: auto; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); margin-bottom: 20px;">
+                <img src="images/4.png" alt="세트 선택 화면" style="max-width: 100%; height: auto; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); margin-bottom: 20px;">
+            </div>
+
+            <div style="margin-bottom: 25px;">
+                <h3 style="color: #667eea; margin-bottom: 10px;">2️⃣ 이미지 업로드</h3>
+                <p style="color: #555; line-height: 1.6; margin-bottom: 10px;">
+                    '📸 이미지 업로드' 버튼을 클릭하고 캡처한 이미지를 선택합니다.<br>
+                    여러 장의 이미지를 동시에 선택할 수 있습니다.
+                </p>
+                <img src="images/5.png" alt="자동 입력 완료" style="max-width: 100%; height: auto; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); margin-bottom: 20px;">
+            </div>
+            
+            <div style="margin-bottom: 25px;">
+                <h3 style="color: #667eea; margin-bottom: 10px;">3️⃣ 자동 인식</h3>
+                <p style="color: #555; line-height: 1.6; margin-bottom: 10px;">
+                    업로드된 이미지에서 조각들을 자동으로 인식합니다.<br>
+                    조각의 모양과 등급(레어/에픽/슈퍼)이 자동으로 분석됩니다.
+                </p>
+                
+            </div>
+
+            <div style="margin-bottom: 25px;">
+                <h3 style="color: #667eea; margin-bottom: 10px;">4️⃣ 세트 선택</h3>
+                <p style="color: #555; line-height: 1.6; margin-bottom: 10px;">
+                    인식된 조각들이 속할 세트를 선택합니다.<br>
+                    사진마다 다른 세트를 선택할 수 있습니다.
+                </p>
+                <img src="images/6.png" alt="자동 배치 결과" style="max-width: 100%; height: auto; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); margin-bottom: 20px;">
+            </div>
+
+            <div style="margin-bottom: 25px;">
+                <h3 style="color: #667eea; margin-bottom: 10px;">5️⃣ 입력 완료</h3>
+                <p style="color: #555; line-height: 1.6; margin-bottom: 10px;">
+                    인식된 조각들의 개수가 자동으로 입력됩니다.<br>
+                    필요하면 수동으로 수정할 수 있습니다.
+                </p>
+                
+            </div>
+
+            <div style="margin-bottom: 25px;">
+                <h3 style="color: #667eea; margin-bottom: 10px;">6️⃣ 자동 배치 실행</h3>
+                <p style="color: #555; line-height: 1.6; margin-bottom: 10px;">
+                    맵을 만들고 세트 우선순위를 설정한 후<br>
+                    '🎯 자동 맞추기 시작' 버튼을 클릭하면 최적 배치를 계산합니다.
+                </p>
+                
+            </div>
+
+            <div style="background: linear-gradient(135deg, rgba(102, 126, 234, 0.1), rgba(118, 75, 162, 0.1)); padding: 20px; border-radius: 10px; border: 2px solid #667eea;">
+                <h3 style="color: #667eea; margin-top: 0;">💡 팁</h3>
+                <ul style="color: #555; line-height: 1.8; margin: 0; padding-left: 20px;">
+                    <li>착용 중인 조각은 인식되지 않습니다.</li>
+                    <li>조각들이 선명하게 보이도록 캡처해주세요</li>
+                    <li>한 화면에 여러 조각이 가로로 나열된 상태로 캡처하세요</li>
+                    <li>등급별로 다른 배경색(파란색=레어, 초록색=에픽, 빨간색=슈퍼)이 표시됩니다</li>
+                    <li>인식이 잘 안되면 수동으로 입력할 수 있습니다</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+
+    <!-- 디버그 모달 -->
+    <div id="debug-modal" style="display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.7); overflow: auto;">
+        <div style="background-color: white; margin: 2% auto; padding: 20px; border-radius: 15px; max-width: 95%; max-height: 90vh; overflow-y: auto; position: relative; box-shadow: 0 4px 20px rgba(0,0,0,0.3);">
+            <span id="close-debug-modal" style="position: absolute; right: 20px; top: 15px; font-size: 35px; font-weight: bold; cursor: pointer; color: #999; transition: color 0.3s;">&times;</span>
+            <h2 style="margin-top: 0; color: #667eea; text-align: center;">🔍 이미지 분석 디버그</h2>
+            <div id="debug-content" style="display: flex; flex-direction: column; gap: 20px;"></div>
         </div>
     </div>
 
