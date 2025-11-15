@@ -44,7 +44,6 @@ function initGame() {
     renderSlots();
     updateDisplay();
     addLog('게임이 시작되었습니다! 0번 칸에서 시작, 15번 칸(슈퍼 에픽)을 목표로 가공하세요!');
-    showAutoRecommendation(); // 시작 시 추천 표시
 }
 
 // 슬롯 렌더링
@@ -90,6 +89,7 @@ function updateDisplay() {
     document.getElementById('hammer').disabled = gameState.gameOver;
 
     renderSlots();
+    updateButtonProbabilities();
 }
 
 // 가공 실행
@@ -135,9 +135,6 @@ function craft(method) {
     // 16번 꽝이면 즉시 종료, 15번은 계속 플레이 가능, 8회 다 쓰면 종료
     if (gameState.currentPosition === 16 || gameState.remainingTurns === 0) {
         endGame();
-    } else {
-        // 게임이 계속되면 다음 추천 표시
-        showAutoRecommendation();
     }
 
     updateDisplay();
@@ -159,22 +156,7 @@ function addLog(message) {
 
 // DP 계산 완료 알림
 function showDPCompletionNotification(successProb) {
-    const recommendDiv = document.getElementById('autoRecommendation');
-    const contentDiv = document.getElementById('recommendationContent');
-
-    // 이전 타이머 취소
-    if (recommendationTimer) {
-        clearTimeout(recommendationTimer);
-        recommendationTimer = null;
-    }
-
-    contentDiv.textContent = `✅ 최적 전략 준비 완료! (성공률 ${successProb}%)`;
-    recommendDiv.classList.remove('hidden');
-
-    // 3초 후 일반 추천으로 전환
-    recommendationTimer = setTimeout(() => {
-        showAutoRecommendation();
-    }, 3000);
+    // 추천 모달이 제거되어 더 이상 사용하지 않음
 }
 
 // 자동 추천 표시 (DP 기반)
@@ -413,7 +395,6 @@ function resetGame() {
 
     updateDisplay();
     addLog('게임이 리셋되었습니다. 새로운 가공을 시작하세요!');
-    showAutoRecommendation(); // 리셋 시 추천 표시
 }
 
 // 몬테카를로 시뮬레이션 (10,000회)
@@ -563,6 +544,86 @@ function getManualRecommendation() {
         manualResultDiv.innerHTML = `<p>${message}</p>`;
     } else {
         manualResultDiv.innerHTML = '<p style="color: #95a5a6;">해당 상태에 대한 최적 행동을 찾을 수 없습니다.</p>';
+    }
+}
+
+// 버튼 확률 업데이트
+function updateButtonProbabilities() {
+    if (gameState.gameOver || typeof evaluateAction !== 'function') {
+        return;
+    }
+
+    const pos = gameState.currentPosition;
+    const turns = gameState.remainingTurns;
+    const refine = gameState.refineCount;
+    const stabilizer = gameState.stabilizerCount;
+
+    // 각 액션의 성공 확률 계산
+    const hammerProb = evaluateAction(pos, turns, refine, stabilizer, 'hammer');
+    const refineProb = refine > 0 ? evaluateAction(pos, turns, refine, stabilizer, 'refine') : 0;
+    const stabilizerProb = stabilizer > 0 ? evaluateAction(pos, turns, refine, stabilizer, 'stabilizer') : 0;
+
+    // 최고 확률 찾기
+    const probabilities = [
+        { action: 'hammer', prob: hammerProb },
+        { action: 'refine', prob: refineProb, available: refine > 0 },
+        { action: 'stabilizer', prob: stabilizerProb, available: stabilizer > 0 }
+    ];
+    const maxProb = Math.max(...probabilities.map(p => p.prob));
+
+    // 버튼에 확률 표시 및 최고 확률 하이라이트
+    const hammerBtn = document.getElementById('hammer');
+    const refineBtn = document.getElementById('refine');
+    const stabilizerBtn = document.getElementById('stabilizer');
+
+    // 기존 best-action 클래스 제거
+    [hammerBtn, refineBtn, stabilizerBtn].forEach(btn => btn.classList.remove('best-action'));
+
+    // 확률 표시
+    document.getElementById('hammerProb').textContent = `성공률: ${(hammerProb * 100).toFixed(1)}%`;
+    document.getElementById('refineProb').textContent = refine > 0 ? `성공률: ${(refineProb * 100).toFixed(1)}%` : '';
+    document.getElementById('stabilizerProb').textContent = stabilizer > 0 ? `성공률: ${(stabilizerProb * 100).toFixed(1)}%` : '';
+
+    // 최고 확률 버튼에 하이라이트
+    if (hammerProb === maxProb) hammerBtn.classList.add('best-action');
+    if (refineProb === maxProb && refine > 0) refineBtn.classList.add('best-action');
+    if (stabilizerProb === maxProb && stabilizer > 0) stabilizerBtn.classList.add('best-action');
+}
+
+// 현재 상태 최적 분석 업데이트
+function updateCurrentAnalysis() {
+    const analysisDiv = document.getElementById('currentAnalysis');
+
+    if (gameState.gameOver) {
+        analysisDiv.innerHTML = '<p style="color: #95a5a6;">게임이 종료되었습니다.</p>';
+        return;
+    }
+
+    if (typeof getOptimalAction !== 'function' || dpTable === null) {
+        analysisDiv.innerHTML = '<p style="color: #95a5a6;">⏳ 최적 전략 계산 중...</p>';
+        return;
+    }
+
+    const optimal = getOptimalAction(
+        gameState.currentPosition,
+        gameState.remainingTurns,
+        gameState.refineCount,
+        gameState.stabilizerCount
+    );
+
+    if (optimal && optimal.bestAction) {
+        const actionName = getActionName(optimal.bestAction);
+        const successProb = (optimal.successProb * 100).toFixed(1);
+
+        analysisDiv.innerHTML = `
+            <div class="current-best-action">
+                <div class="best-action-label">🎯 최적 행동</div>
+                <div class="best-action-name">${actionName}</div>
+                <div class="best-action-prob">성공률: ${successProb}%</div>
+            </div>
+        `;
+    } else {
+        analysisDiv.innerHTML = '<p style="color: #95a5a6;">최적 행동을 찾을 수 없습니다.</p>';
     }
 }
 

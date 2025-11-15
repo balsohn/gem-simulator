@@ -6,6 +6,8 @@
     <title>조각 맞추기 자동 계산기</title>
     <link rel="stylesheet" href="style.css">
     <link rel="stylesheet" href="solver_style.css">
+    <!-- OpenCV for image processing -->
+    <script async src="https://docs.opencv.org/4.9.0/opencv.js"></script>
 </head>
 <body>
     <div class="container">
@@ -53,6 +55,18 @@
                         <button id="random-fill-btn" class="reset-btn" style="background: linear-gradient(135deg, #667eea, #764ba2);">🎲 랜덤 채우기</button>
                         <button id="clear-pieces-btn" class="reset-btn">조각 초기화</button>
                     </div>
+                    <div class="upload-section" style="margin: 15px 0; padding: 15px; background: rgba(102, 126, 234, 0.1); border-radius: 10px;">
+                        <h4 style="margin: 0 0 10px 0; font-size: 1em;">📷 사진에서 자동 인식</h4>
+                        <p style="font-size: 0.9em; margin-bottom: 10px; color: #555;">
+                            조각 이미지를 업로드하면 자동으로 모양을 분석해서 개수를 입력합니다. (여러 장 가능)
+                        </p>
+                        <input type="file" id="image-upload" accept="image/*" multiple style="position: absolute; width: 1px; height: 1px; opacity: 0; overflow: hidden;">
+                        <div style="display: flex; gap: 10px; align-items: center;">
+                            <label for="image-upload" id="upload-btn" class="reset-btn" style="background: linear-gradient(135deg, #f093fb, #f5576c); margin-bottom: 0; cursor: pointer; display: inline-block; text-align: center; flex: 1;">📸 이미지 업로드</label>
+                            <button id="usage-btn" class="reset-btn" style="background: linear-gradient(135deg, #667eea, #764ba2); margin-bottom: 0; white-space: nowrap;">📖 사용법</button>
+                        </div>
+                        <div id="upload-status" style="font-size: 0.9em; margin-top: 5px; color: #667eea;"></div>
+                    </div>
                     <div id="piece-palette" class="palette"></div>
                 </div>
             </div>
@@ -60,6 +74,17 @@
 
         <div id="solutions-container" class="solutions-container"></div>
     </div>
+
+    <!-- 사용법 모달 -->
+    <div id="usage-modal" style="display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.7); overflow: auto;">
+        <div style="background-color: white; margin: 3% auto; padding: 30px; border-radius: 15px; max-width: 900px; position: relative; box-shadow: 0 4px 20px rgba(0,0,0,0.3);">
+            <span id="close-modal" style="position: absolute; right: 20px; top: 15px; font-size: 35px; font-weight: bold; cursor: pointer; color: #999; transition: color 0.3s;">&times;</span>
+            <h2 style="margin-top: 0; color: #667eea; text-align: center;">📖 사용법</h2>
+            <img src="사용법.png" alt="사용법 안내" style="max-width: 100%; height: auto; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
+            이미지 이런식으로 캡처해서 올려주세요.
+        </div>
+    </div>
+
     <script src="solver.js"></script>
 </body>
 </html>

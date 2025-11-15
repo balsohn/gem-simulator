@@ -177,15 +177,11 @@ h1 {
 }
 
 .gem-container {
-    background: white;
-    padding: 30px;
-    border-radius: 20px;
-    box-shadow: 0 8px 16px rgba(0, 0, 0, 0.2);
     position: relative;
 }
 
 .gem {
-    font-size: 6em;
+    font-size: 12em;
     transition: all 0.3s ease;
     display: inline-block;
 }
@@ -580,4 +576,130 @@ h1 {
     border: 1px solid #ddd;
     font-size: 1em;
     font-family: inherit;
+}
+
+/* === 새로운 레이아웃 스타일 === */
+
+/* 메인 컨텐츠: 2열 레이아웃 */
+.main-content {
+    display: flex;
+    gap: 30px;
+    margin: 30px 0;
+}
+
+.left-section {
+    flex: 1;
+    min-width: 350px;
+    max-width: 500px;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+.right-section {
+    flex: 1.5;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+/* 슬롯 컨테이너 (최상단 게이지) */
+.slots-container {
+    background: white;
+    padding: 25px;
+    border-radius: 20px;
+    box-shadow: 0 8px 16px rgba(0, 0, 0, 0.2);
+    margin-bottom: 20px;
+}
+
+.slots-container h3 {
+    margin: 0 0 15px 0;
+    color: #333;
+    text-align: center;
+}
+
+/* 버튼 확률 표시 */
+.btn-probability {
+    margin-top: 8px;
+    padding: 6px;
+    background: rgba(255, 255, 255, 0.9);
+    border-radius: 5px;
+    font-size: 0.95em;
+    font-weight: bold;
+    color: #667eea;
+    text-align: center;
+}
+
+/* 최고 확률 버튼 하이라이트 */
+.craft-btn.best-action {
+    border: 3px solid #FFD700;
+    box-shadow: 0 0 20px rgba(255, 215, 0, 0.5);
+    transform: scale(1.05);
+}
+
+.craft-btn.best-action .btn-probability {
+    background: linear-gradient(135deg, #FFD700, #FFA500);
+    color: white;
+}
+
+/* 현재 상태 최적 분석 카드 */
+.current-analysis {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    min-height: 150px;
+}
+
+.current-analysis h3 {
+    color: white;
+    margin: 0 0 15px 0;
+}
+
+.current-analysis-result {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100px;
+}
+
+.current-best-action {
+    text-align: center;
+}
+
+.best-action-label {
+    font-size: 0.9em;
+    opacity: 0.9;
+    margin-bottom: 8px;
+}
+
+.best-action-name {
+    font-size: 1.8em;
+    font-weight: bold;
+    margin: 10px 0;
+}
+
+.best-action-prob {
+    font-size: 1.2em;
+    opacity: 0.95;
+    margin-top: 5px;
+}
+
+/* 반응형 디자인 */
+@media (max-width: 1024px) {
+    .main-content {
+        flex-direction: column;
+    }
+    
+    .left-section {
+        flex: 1;
+    }
+}
+
+@media (max-width: 768px) {
+    .left-section {
+        flex: 1;
+    }
+    
+    .craft-btn.best-action {
+        transform: scale(1.02);
+    }
 }
