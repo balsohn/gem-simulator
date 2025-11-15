@@ -3246,6 +3246,10 @@ function findPieceNameByShape(extractedShape) {
             });
         }
 
+        // 조각 개수 제한 설정 (DLX 탐색 시 적용)
+        const MAX_UNIQUE_PIECES = 1;
+        const MAX_REGULAR_PIECES = 15;
+
         // Step 3: Set up and run DLX solver
         dlxSolutions = [];
         dlxStartTime = Date.now();
@@ -3253,7 +3257,8 @@ function findPieceNameByShape(extractedShape) {
         solveBtn.disabled = true;
         resetGridBtn.disabled = true;
         clearPiecesBtn.disabled = true;
-        solutionSummary.textContent = `🔄 계산 중... (맵 ${targetCellCount}칸, 조각 총 ${piecesCellCount}칸)`;
+
+        solutionSummary.textContent = `🔄 계산 중... (맵 ${targetCellCount}칸, 조각 ${piecesToUse.length}개, 총 ${piecesCellCount}칸, 최대 ${MAX_UNIQUE_PIECES}유니크+${MAX_REGULAR_PIECES}일반 사용)`;
         solutionsContainer.innerHTML = '';
 
         const board = Array(GRID_SIZE * GRID_SIZE).fill(-1);
@@ -3269,6 +3274,8 @@ function findPieceNameByShape(extractedShape) {
                 bestSolution = []; // Reset for each new search
                 bestCellsFilled = 0; // Reset for each new search
                 allSolutions = []; // Reset for each new search
+                maxUniquePieces = MAX_UNIQUE_PIECES; // 전역 변수에 저장
+                maxRegularPieces = MAX_REGULAR_PIECES; // 전역 변수에 저장
                 const root = createDlxMatrix(board, piecesToUse);
                 search(root);
             } catch (e) {
@@ -3865,6 +3872,8 @@ function findPieceNameByShape(extractedShape) {
     let bestSolution = [];
     let bestCellsFilled = 0;
     let allSolutions = []; // 여러 해결책 저장
+    let maxUniquePieces = 1; // 최대 유니크 조각 수
+    let maxRegularPieces = 15; // 최대 일반 조각 수
 
     function search(root, partialSolution = [], currentScore = 0) {
         if (Date.now() - dlxStartTime > MAX_TIME_MS) {
@@ -4083,9 +4092,34 @@ function findPieceNameByShape(extractedShape) {
             while (!pieceNode.pieceInfo && pieceNode.R !== r) {
                 pieceNode = pieceNode.R;
             }
-            
+
             if (pieceNode.pieceInfo) {
                 const { piece, pos } = pieceNode.pieceInfo;
+
+                // 조각 개수 제한 체크
+                let uniqueCount = 0;
+                let regularCount = 0;
+                partialSolution.forEach(node => {
+                    let pNode = node;
+                    while (!pNode.pieceInfo && pNode.R !== node) {
+                        pNode = pNode.R;
+                    }
+                    if (pNode.pieceInfo) {
+                        if (pNode.pieceInfo.piece.isUnique) {
+                            uniqueCount++;
+                        } else {
+                            regularCount++;
+                        }
+                    }
+                });
+
+                // 이 조각을 추가하면 제한을 초과하는지 확인
+                if (piece.isUnique && uniqueCount >= maxUniquePieces) {
+                    continue; // 유니크 조각 제한 초과, 이 조각 건너뛰기
+                }
+                if (!piece.isUnique && regularCount >= maxRegularPieces) {
+                    continue; // 일반 조각 제한 초과, 이 조각 건너뛰기
+                }
                 const newCells = piece.shape.map(([dr, dc]) => {
                     const r = pos[0] + dr;
                     const c = pos[1] + dc;
