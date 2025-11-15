@@ -3335,7 +3335,7 @@ function findPieceNameByShape(extractedShape) {
                 const solutionsToShow = allSolutions.slice(0, MAX_SOLUTIONS);
                 solutionsToShow.forEach((sol, index) => {
                     const processedSolution = processDlxSolution(sol.solution, sol.score);
-                    renderSolution(processedSolution.board, processedSolution.score, index + 1, processedSolution.usedPieces, processedSolution.pieceGrades, processedSolution.setBonusDetails, processedSolution.baseScore, processedSolution.setBonus);
+                    renderSolution(processedSolution.board, processedSolution.score, index + 1, processedSolution.usedPieces, processedSolution.pieceGrades, processedSolution.pieceSets, processedSolution.setBonusDetails, processedSolution.baseScore, processedSolution.setBonus);
                 });
 
                 const elapsed = ((Date.now() - dlxStartTime) / 1000).toFixed(1);
@@ -3364,7 +3364,7 @@ function findPieceNameByShape(extractedShape) {
                 // 해결책이 없지만 bestSolution은 있는 경우 (이론적으로는 발생하지 않아야 함)
                 const processedSolution = processDlxSolution(bestSolution, bestScoreFound);
                 solutionsContainer.innerHTML = '';
-                renderSolution(processedSolution.board, processedSolution.score, 1, processedSolution.usedPieces, processedSolution.pieceGrades, processedSolution.setBonusDetails, processedSolution.baseScore, processedSolution.setBonus);
+                renderSolution(processedSolution.board, processedSolution.score, 1, processedSolution.usedPieces, processedSolution.pieceGrades, processedSolution.pieceSets, processedSolution.setBonusDetails, processedSolution.baseScore, processedSolution.setBonus);
                 
                 const elapsed = ((Date.now() - dlxStartTime) / 1000).toFixed(1);
                 const maxFilled = processedSolution.board.filter(id => id > 0).length;
@@ -3391,6 +3391,7 @@ function findPieceNameByShape(extractedShape) {
         let pieceId = 1;
         const usedPiecesDetails = [];
         const pieceGrades = {}; // pieceId -> grade 매핑
+        const pieceSets = {}; // pieceId -> set 매핑
         const setCellCounts = {}; // 세트별 칸 수 카운트
         let sumOfPieceCells = 0;
 
@@ -3408,6 +3409,7 @@ function findPieceNameByShape(extractedShape) {
 
                 // 세트 정보 추출 및 카운트
                 const pieceSet = piece.set || null;
+                pieceSets[currentPieceId] = pieceSet; // 세트 정보 저장
                 if (pieceSet) {
                     setCellCounts[pieceSet] = (setCellCounts[pieceSet] || 0) + piece.shape.length;
                 }
@@ -3452,6 +3454,7 @@ function findPieceNameByShape(extractedShape) {
             setBonusDetails: setBonusDetails,
             usedPieces: usedPiecesDetails,
             pieceGrades: pieceGrades,
+            pieceSets: pieceSets,
             setCellCounts: setCellCounts
         };
     }
@@ -3527,7 +3530,7 @@ function findPieceNameByShape(extractedShape) {
         return `rgb(${blendedR}, ${blendedG}, ${blendedB})`;
     }
 
-    function renderSolution(board, totalScore = 0, solutionNumber = 1, usedPieces = [], pieceGrades = {}, setBonusDetails = {}, baseScore = 0, setBonus = 0) {
+    function renderSolution(board, totalScore = 0, solutionNumber = 1, usedPieces = [], pieceGrades = {}, pieceSets = {}, setBonusDetails = {}, baseScore = 0, setBonus = 0) {
         // Create wrapper for solution
         const solutionWrapper = document.createElement('div');
         solutionWrapper.classList.add('solution-wrapper');
@@ -3655,15 +3658,17 @@ function findPieceNameByShape(extractedShape) {
                     cell.appendChild(overlay);
                 }
 
-                // Add piece number in the center of each piece
+                // Add piece number and set icon in the center of each piece
                 const isCenter = isPieceCenter(grid2D, row, col, pieceId);
                 if (isCenter) {
-                    cell.textContent = pieceId;
+                    const pieceSet = pieceSets[pieceId];
+                    const setIcon = pieceSet && SET_INFO[pieceSet] ? SET_INFO[pieceSet].icon : '';
+                    cell.textContent = `${setIcon} ${pieceId}`;
                     cell.style.display = 'flex';
                     cell.style.alignItems = 'center';
                     cell.style.justifyContent = 'center';
                     cell.style.fontWeight = 'bold';
-                    cell.style.fontSize = '0.8em';
+                    cell.style.fontSize = '0.75em';
                     cell.style.color = '#fff';
                     cell.style.textShadow = '1px 1px 2px rgba(0,0,0,0.5)';
                     cell.style.zIndex = '1';
