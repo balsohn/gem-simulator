@@ -456,6 +456,1872 @@ document.addEventListener('DOMContentLoaded', () => {
     const randomFillBtn = document.getElementById('random-fill-btn');
     randomFillBtn.addEventListener('click', randomFillPieces);
 
+    // --- Image Upload & OCR ---
+    const uploadBtn = document.getElementById('upload-btn');
+    const imageUpload = document.getElementById('image-upload');
+    const uploadStatus = document.getElementById('upload-status');
+    const previewContainer = document.getElementById('preview-container');
+    const previewImage = document.getElementById('preview-image');
+
+    // Disable upload button until OpenCV is ready
+    uploadBtn.style.pointerEvents = 'none';
+    uploadBtn.style.cursor = 'not-allowed';
+    uploadBtn.style.opacity = '0.5';
+    uploadStatus.textContent = '⏳ 이미지 분석기 로딩 중...';
+
+    function onCvReady() {
+        console.log('OpenCV is ready.');
+        uploadStatus.textContent = '✅ 이미지 분석기 준비 완료';
+        uploadStatus.style.color = '#10b981';
+        uploadBtn.style.pointerEvents = 'auto';
+        uploadBtn.style.cursor = 'pointer';
+        uploadBtn.style.opacity = '1';
+        console.log('Image analyzer is ready!');
+    }
+
+    // Wait for OpenCV to load and initialize
+    function checkOpenCV() {
+        if (typeof cv !== 'undefined') {
+            // Check if OpenCV is already ready
+            if (cv.Mat) {
+                console.log('OpenCV already loaded');
+                onCvReady();
+            } else {
+                // Set callback for when it's ready
+                cv.onRuntimeInitialized = () => {
+                    console.log('OpenCV initialized via callback');
+                    onCvReady();
+                };
+            }
+        } else {
+            // If cv is not defined yet, check again after 100ms
+            setTimeout(checkOpenCV, 100);
+        }
+    }
+
+    checkOpenCV();
+
+    // 사용법 모달
+    const usageModal = document.getElementById('usage-modal');
+    const usageBtn = document.getElementById('usage-btn');
+    const closeModal = document.getElementById('close-modal');
+
+    usageBtn?.addEventListener('click', () => {
+        usageModal.style.display = 'block';
+    });
+
+    closeModal?.addEventListener('click', () => {
+        usageModal.style.display = 'none';
+    });
+
+    window.addEventListener('click', (e) => {
+        if (e.target === usageModal) {
+            usageModal.style.display = 'none';
+        }
+    });
+
+    // 조각 이미지 인식 (그리드 분석 방식)
+    imageUpload?.addEventListener('change', async (e) => {
+        const files = e.target.files;
+        if (files.length === 0) return;
+
+        uploadStatus.textContent = `🔄 ${files.length}장의 이미지 분석 중...`;
+        uploadStatus.style.color = '#667eea';
+
+        try {
+            // 모든 이미지에서 인식된 조각 합산
+            const allResults = {};
+
+            for (let i = 0; i < files.length; i++) {
+                const file = files[i];
+                console.log(`Processing image ${i + 1}/${files.length}: ${file.name}`);
+
+                const pieceData = await recognizePiecesWithCV(file);
+
+                // 결과 합산
+                for (const result of pieceData) {
+                    const key = `${result.pieceName}-${result.grade}`;
+                    allResults[key] = (allResults[key] || 0) + result.count;
+                }
+            }
+
+            // 합산 결과를 배열로 변환
+            const finalResults = Object.entries(allResults).map(([key, count]) => {
+                const [pieceName, grade] = key.split('-');
+                return { pieceName, grade, count };
+            });
+
+            if (finalResults.length === 0) {
+                uploadStatus.textContent = '⚠️ 조각 정보를 찾을 수 없습니다. 이미지가 선명한지 확인해주세요.';
+                uploadStatus.style.color = '#f59e0b';
+                return;
+            }
+
+            fillPiecesFromCV(finalResults);
+
+            const totalPieces = finalResults.reduce((sum, p) => sum + p.count, 0);
+            uploadStatus.textContent = `✅ ${files.length}장 분석 완료! ${finalResults.length}개 종류, 총 ${totalPieces}개의 조각을 인식했습니다!`;
+            uploadStatus.style.color = '#10b981';
+
+        } catch (error) {
+            console.error('Image Analysis Error:', error);
+            uploadStatus.textContent = `❌ 이미지 분석 실패: ${error.message || '알 수 없는 오류'}.`;
+            uploadStatus.style.color = '#f5576c';
+        }
+
+        // 파일 선택 초기화 (같은 파일 다시 선택 가능)
+        e.target.value = '';
+    });
+
+
+
+    // 이미지에서 직접 조각 영역 찾기 (격자 형태로 배열된 조각들)
+    function findPieceRegionsFromImage(canvas, ctx, imageWidth, imageHeight) {
+        const pieces = [];
+        
+        // 조각 영역은 보통 오른쪽 패널에 있고, 격자 형태로 배열됨
+        // 이미지의 오른쪽 40-90% 영역에서 조각 영역 찾기
+        const searchX = Math.floor(imageWidth * 0.4);
+        const searchWidth = Math.floor(imageWidth * 0.5);
+        
+        // 배경색 변화를 감지하여 조각 타일 경계 찾기
+        // Y 좌표를 세밀하게 스캔하여 배경색 변화 지점 찾기
+        const scanStep = 5; // 5픽셀씩 스캔
+        const minTileHeight = 30; // 최소 타일 높이
+        const maxTileHeight = 100; // 최대 타일 높이
+        
+        let currentY = Math.floor(imageHeight * 0.1);
+        let lastGrade = null;
+        let tileStartY = null;
+        
+        while (currentY < imageHeight * 0.9) {
+            // 현재 위치의 배경색 확인
+            const testImageData = ctx.getImageData(searchX, currentY, searchWidth, scanStep);
+            const testGrade = detectGradeFromBackground(testImageData);
+            
+            // 배경색이 변경되면 조각 타일 경계
+            if (lastGrade !== null && testGrade !== lastGrade) {
+                // 이전 타일 종료
+                if (tileStartY !== null && currentY - tileStartY >= minTileHeight) {
+                    const tileHeight = currentY - tileStartY;
+                    if (tileHeight <= maxTileHeight) {
+                        pieces.push({
+                            count: 1, // 기본값 (나중에 OCR로 업데이트)
+                            total: 1,
+                            bbox: { x0: searchX, y0: tileStartY, x1: searchX + searchWidth, y1: currentY },
+                            y: tileStartY + tileHeight / 2, // 타일 중앙
+                            x: searchX
+                        });
+                    }
+                }
+                // 새 타일 시작
+                tileStartY = currentY;
+                lastGrade = testGrade;
+            } else if (lastGrade === null) {
+                // 첫 타일 시작
+                tileStartY = currentY;
+                lastGrade = testGrade;
+            }
+            
+            currentY += scanStep;
+        }
+        
+        // 마지막 타일 처리
+        if (tileStartY !== null && currentY - tileStartY >= minTileHeight) {
+            const tileHeight = currentY - tileStartY;
+            if (tileHeight <= maxTileHeight) {
+                pieces.push({
+                    count: 1,
+                    total: 1,
+                    bbox: { x0: searchX, y0: tileStartY, x1: searchX + searchWidth, y1: currentY },
+                    y: tileStartY + tileHeight / 2,
+                    x: searchX
+                });
+            }
+        }
+        
+        // 배경색 변화 감지가 실패한 경우, 고정된 격자 패턴 사용
+        // 이미지 설명에 따르면: 3행 5열 + 마지막 행 2개 = 총 17개
+        if (pieces.length < 10) {
+            console.log('배경색 변화 감지 실패, 고정된 격자 패턴 사용...');
+            pieces.length = 0; // 기존 결과 초기화
+            
+            const startY = Math.floor(imageHeight * 0.15);
+            const endY = Math.floor(imageHeight * 0.85);
+            const availableHeight = endY - startY;
+            
+            // 4행으로 나눔 (첫 3행은 5개씩, 마지막 행은 2개)
+            const rowHeight = availableHeight / 4;
+            let currentY = startY;
+            
+            // 첫 3행: 각각 5개 조각
+            for (let row = 0; row < 3; row++) {
+                const tileHeight = rowHeight / 5;
+                for (let col = 0; col < 5; col++) {
+                    const tileY = currentY + col * tileHeight;
+                    pieces.push({
+                        count: 1,
+                        total: 1,
+                        bbox: { x0: searchX, y0: tileY, x1: searchX + searchWidth, y1: tileY + tileHeight },
+                        y: tileY + tileHeight / 2,
+                        x: searchX
+                    });
+                }
+                currentY += rowHeight;
+            }
+            
+            // 마지막 행: 2개 조각
+            const tileHeight = rowHeight / 2;
+            for (let col = 0; col < 2; col++) {
+                const tileY = currentY + col * tileHeight;
+                pieces.push({
+                    count: 1,
+                    total: 1,
+                    bbox: { x0: searchX, y0: tileY, x1: searchX + searchWidth, y1: tileY + tileHeight },
+                    y: tileY + tileHeight / 2,
+                    x: searchX
+                });
+            }
+        }
+        
+        // Y 좌표 기준으로 정렬
+        pieces.sort((a, b) => a.y - b.y);
+        
+        console.log(`이미지에서 ${pieces.length}개의 조각 타일 영역을 찾았습니다.`);
+        
+        return pieces;
+    }
+
+    // 조각 아이콘의 크기만 측정 (1x1 기준 찾기용)
+    function measurePieceIconSize(canvas, ctx, x, y, width, height) {
+        const iconSize = Math.min(100, Math.min(width, height) * 0.6);
+        const centerX = Math.floor(width * 0.5);
+        const centerY = Math.floor(height * 0.5);
+        const iconX = Math.max(0, centerX - iconSize / 2);
+        const iconY = Math.max(0, centerY - iconSize / 2);
+        
+        try {
+            const iconImageData = ctx.getImageData(x + iconX, y + iconY, iconSize, iconSize);
+            const sizeInfo = detectPieceShapeInSection(iconImageData, true, true); // 크기만 측정
+            return sizeInfo;
+        } catch (e) {
+            try {
+                const iconImageData = ctx.getImageData(x, y, width, height);
+                const sizeInfo = detectPieceShapeInSection(iconImageData, false, true); // 크기만 측정
+                return sizeInfo;
+            } catch (e2) {
+                return null;
+            }
+        }
+    }
+
+    function analyzePieceSection(canvas, ctx, x, y, width, height, baseUnitSize = null) {
+        // Extract pixel data from section
+        const imageData = ctx.getImageData(x, y, width, height);
+
+        // Determine grade from background color
+        const grade = detectGradeFromBackground(imageData);
+
+        // 조각 아이콘 찾기: 중앙 영역만 스캔 (성능 최적화)
+        const iconSize = Math.min(100, Math.min(width, height) * 0.6);
+        const centerX = Math.floor(width * 0.5);
+        const centerY = Math.floor(height * 0.5);
+        const iconX = Math.max(0, centerX - iconSize / 2);
+        const iconY = Math.max(0, centerY - iconSize / 2);
+        
+        let bestIcon = null;
+        
+        try {
+            const iconImageData = ctx.getImageData(x + iconX, y + iconY, iconSize, iconSize);
+            const iconInfo = detectPieceShapeInSection(iconImageData, true, false, baseUnitSize);
+            bestIcon = iconInfo ? iconInfo.pieceName : null;
+        } catch (e) {
+            // 영역이 범위를 벗어난 경우 무시
+        }
+        
+        // 조각 아이콘을 찾지 못한 경우, 전체 영역에서 다시 시도
+        if (!bestIcon) {
+            try {
+                const iconImageData = ctx.getImageData(x, y, width, height);
+                const iconInfo = detectPieceShapeInSection(iconImageData, false, false, baseUnitSize);
+                bestIcon = iconInfo ? iconInfo.pieceName : null;
+            } catch (e) {
+                // 무시
+            }
+        }
+
+        console.log(`Section analysis: grade=${grade}, piece=${bestIcon}`);
+
+        return { pieceName: bestIcon, grade };
+    }
+
+    function detectGradeFromBackground(imageData) {
+        const { data, width, height } = imageData;
+
+        // 더 많은 샘플 포인트로 배경색 추출 (배경은 보통 왼쪽이나 중앙에 있음)
+        const colorSamples = [];
+        const samplePoints = 20;
+
+        // 여러 위치에서 샘플링 (왼쪽, 중앙, 오른쪽)
+        for (let i = 0; i < samplePoints; i++) {
+            // 왼쪽 영역 (배경이 있을 가능성이 높음)
+            const x = Math.floor((width * 0.3 / samplePoints) * i);
+            const y = Math.floor(height / 2);
+            const idx = (y * width + x) * 4;
+
+            if (idx < data.length - 3) {
+            colorSamples.push({
+                r: data[idx],
+                g: data[idx + 1],
+                b: data[idx + 2]
+            });
+            }
+        }
+
+        // 중앙 영역도 샘플링
+        for (let i = 0; i < 5; i++) {
+            const x = Math.floor(width * 0.3 + (width * 0.2 / 5) * i);
+            const y = Math.floor(height / 2);
+            const idx = (y * width + x) * 4;
+
+            if (idx < data.length - 3) {
+                colorSamples.push({
+                    r: data[idx],
+                    g: data[idx + 1],
+                    b: data[idx + 2]
+                });
+            }
+        }
+
+        if (colorSamples.length === 0) {
+            console.log('No color samples found, using default rare');
+            return 'rare';
+        }
+
+        // Average color
+        const avgColor = {
+            r: colorSamples.reduce((sum, c) => sum + c.r, 0) / colorSamples.length,
+            g: colorSamples.reduce((sum, c) => sum + c.g, 0) / colorSamples.length,
+            b: colorSamples.reduce((sum, c) => sum + c.b, 0) / colorSamples.length
+        };
+
+        console.log('Background color:', avgColor);
+
+        return estimateGradeFromColor(avgColor);
+    }
+
+    function detectPieceShapeInSection(imageData, isSmallRegion = false, sizeOnly = false, baseUnitSize = null) {
+        // Find the piece icon (smaller colored region within section)
+        const { data, width, height } = imageData;
+
+        // 배경색 추정 (가장 많은 색상, 가장자리 색상도 고려)
+        const colorMap = new Map();
+        const edgeSamples = []; // 가장자리 샘플 (배경일 가능성이 높음)
+        
+        // 가장자리 샘플링
+        for (let y = 0; y < height; y += Math.max(1, Math.floor(height / 5))) {
+            for (let x = 0; x < width; x += Math.max(1, Math.floor(width / 5))) {
+                if (x === 0 || x >= width - 1 || y === 0 || y >= height - 1) {
+                    const i = (y * width + x) * 4;
+                    edgeSamples.push({ r: data[i], g: data[i + 1], b: data[i + 2] });
+                }
+            }
+        }
+        
+        // 전체 영역 샘플링 (10단위로 양자화)
+        for (let y = 0; y < height; y += 5) {
+            for (let x = 0; x < width; x += 5) {
+                const i = (y * width + x) * 4;
+                const r = Math.floor(data[i] / 15) * 15; // 15단위로 양자화 (더 넓은 범위)
+                const g = Math.floor(data[i + 1] / 15) * 15;
+                const b = Math.floor(data[i + 2] / 15) * 15;
+                const key = `${r},${g},${b}`;
+                colorMap.set(key, (colorMap.get(key) || 0) + 1);
+            }
+        }
+        
+        // 가장자리 색상도 배경색 후보에 추가
+        edgeSamples.forEach(sample => {
+            const r = Math.floor(sample.r / 15) * 15;
+            const g = Math.floor(sample.g / 15) * 15;
+            const b = Math.floor(sample.b / 15) * 15;
+            const key = `${r},${g},${b}`;
+            colorMap.set(key, (colorMap.get(key) || 0) + 10); // 가장자리는 가중치 높게
+        });
+        
+        // 가장 많은 색상 찾기 (배경색)
+        let maxCount = 0;
+        let bgColor = null;
+        for (const [color, count] of colorMap.entries()) {
+            if (count > maxCount) {
+                maxCount = count;
+                bgColor = color;
+            }
+        }
+        
+        const [bgR, bgG, bgB] = bgColor ? bgColor.split(',').map(Number) : [0, 0, 0];
+        const bgThreshold = isSmallRegion ? 25 : 40; // 작은 영역일 때는 더 낮은 임계값
+
+        const coloredPixels = [];
+
+        // 배경색과 다른 픽셀 찾기 (조각 아이콘)
+        for (let y = 0; y < height; y++) {
+            for (let x = 0; x < width; x++) {
+                const i = (y * width + x) * 4;
+                const r = data[i];
+                const g = data[i + 1];
+                const b = data[i + 2];
+                const a = data[i + 3];
+
+                // 배경색과의 차이 계산 (유클리드 거리 사용)
+                const colorDiff = Math.sqrt(
+                    Math.pow(r - bgR, 2) + 
+                    Math.pow(g - bgG, 2) + 
+                    Math.pow(b - bgB, 2)
+                );
+
+                // 배경색과 충분히 다르고, 투명도가 충분한 픽셀
+                if (a > 200 && colorDiff > bgThreshold) {
+                    coloredPixels.push({ x, y, r, g, b });
+                }
+            }
+        }
+
+        if (coloredPixels.length === 0) {
+            if (!isSmallRegion) {
+                console.log('조각 아이콘을 찾을 수 없음');
+            }
+            return null;
+        }
+
+        // 연결된 픽셀 그룹 찾기 (Flood Fill 알고리즘)
+        const groups = findConnectedGroups(coloredPixels, width, height);
+        
+        // 가장 큰 그룹 찾기 (조각 아이콘일 가능성이 높음)
+        let largestGroup = groups[0];
+        for (const group of groups) {
+            if (group.length > largestGroup.length) {
+                largestGroup = group;
+            }
+        }
+
+        // Calculate bounding box of largest group
+        const minX = Math.min(...largestGroup.map(p => p.x));
+        const maxX = Math.max(...largestGroup.map(p => p.x));
+        const minY = Math.min(...largestGroup.map(p => p.y));
+        const maxY = Math.max(...largestGroup.map(p => p.y));
+
+        const shapeWidth = maxX - minX + 1;
+        const shapeHeight = maxY - minY + 1;
+
+        console.log(`Shape dimensions: ${shapeWidth}x${shapeHeight}, pixels: ${largestGroup.length}, groups: ${groups.length}`);
+
+        // 크기만 측정 모드 (1x1 기준 찾기용)
+        if (sizeOnly) {
+            return {
+                width: shapeWidth,
+                height: shapeHeight,
+                area: largestGroup.length
+            };
+        }
+
+        // 픽셀 패턴 분석으로 조각 모양 추정 시도
+        let pieceName = analyzePiecePattern(largestGroup, shapeWidth, shapeHeight);
+        
+        // 패턴 분석이 실패하면 크기 기반 추정 사용 (1x1 기준 사용)
+        if (!pieceName) {
+            pieceName = estimatePieceFromDimensions(shapeWidth, shapeHeight, largestGroup, baseUnitSize);
+        }
+        
+        return { pieceName, coloredPixels: largestGroup.length };
+    }
+
+    // 연결된 픽셀 그룹 찾기 (Flood Fill)
+    function findConnectedGroups(pixels, width, height) {
+        if (pixels.length === 0) return [];
+        
+        const pixelSet = new Set(pixels.map(p => `${p.x},${p.y}`));
+        const visited = new Set();
+        const groups = [];
+        
+        for (const pixel of pixels) {
+            const key = `${pixel.x},${pixel.y}`;
+            if (visited.has(key)) continue;
+            
+            // Flood Fill로 연결된 픽셀 찾기
+            const group = [];
+            const stack = [pixel];
+            
+            while (stack.length > 0) {
+                const current = stack.pop();
+                const currentKey = `${current.x},${current.y}`;
+                
+                if (visited.has(currentKey)) continue;
+                visited.add(currentKey);
+                group.push(current);
+                
+                // 4방향 이웃 확인
+                const neighbors = [
+                    { x: current.x + 1, y: current.y },
+                    { x: current.x - 1, y: current.y },
+                    { x: current.x, y: current.y + 1 },
+                    { x: current.x, y: current.y - 1 }
+                ];
+                
+                for (const neighbor of neighbors) {
+                    const neighborKey = `${neighbor.x},${neighbor.y}`;
+                    if (pixelSet.has(neighborKey) && !visited.has(neighborKey)) {
+                        const neighborPixel = pixels.find(p => p.x === neighbor.x && p.y === neighbor.y);
+                        if (neighborPixel) {
+                            stack.push(neighborPixel);
+                        }
+                    }
+                }
+            }
+            
+            if (group.length > 5) { // 최소 5개 픽셀 이상인 그룹만
+                groups.push(group);
+            }
+        }
+        
+        return groups;
+    }
+
+    function analyzePieceIcon(canvas, ctx, countBbox) {
+        // Estimate piece icon location (above the count text)
+        const iconHeight = Math.min(countBbox.y0 - 10, 100); // Icon is above count
+        const iconWidth = countBbox.x1 - countBbox.x0;
+        const iconX = countBbox.x0;
+        const iconY = Math.max(0, countBbox.y0 - iconHeight - 50);
+
+        // Extract pixel data from estimated icon region
+        const imageData = ctx.getImageData(iconX, iconY, iconWidth, iconHeight);
+
+        // Analyze pixel pattern to detect piece shape
+        const shapeInfo = detectPieceShape(imageData);
+
+        return shapeInfo;
+    }
+
+    function detectPieceShape(imageData) {
+        const { data, width, height } = imageData;
+
+        // Find colored pixels (non-background)
+        const coloredPixels = [];
+        const threshold = 100; // Color intensity threshold
+
+        for (let y = 0; y < height; y++) {
+            for (let x = 0; x < width; x++) {
+                const i = (y * width + x) * 4;
+                const r = data[i];
+                const g = data[i + 1];
+                const b = data[i + 2];
+                const a = data[i + 3];
+
+                // Check if pixel is colored (not background)
+                if (a > 200 && (r > threshold || g > threshold || b > threshold)) {
+                    coloredPixels.push({ x, y, r, g, b });
+                }
+            }
+        }
+
+        if (coloredPixels.length === 0) {
+            return null;
+        }
+
+        // Calculate bounding box of colored region
+        const minX = Math.min(...coloredPixels.map(p => p.x));
+        const maxX = Math.max(...coloredPixels.map(p => p.x));
+        const minY = Math.min(...coloredPixels.map(p => p.y));
+        const maxY = Math.max(...coloredPixels.map(p => p.y));
+
+        const shapeWidth = maxX - minX + 1;
+        const shapeHeight = maxY - minY + 1;
+
+        // Estimate piece type based on dimensions
+        const pieceName = estimatePieceFromDimensions(shapeWidth, shapeHeight, coloredPixels);
+
+        // Determine grade from color
+        const avgColor = {
+            r: coloredPixels.reduce((sum, p) => sum + p.r, 0) / coloredPixels.length,
+            g: coloredPixels.reduce((sum, p) => sum + p.g, 0) / coloredPixels.length,
+            b: coloredPixels.reduce((sum, p) => sum + p.b, 0) / coloredPixels.length
+        };
+
+        const grade = estimateGradeFromColor(avgColor);
+
+        return { pieceName, grade };
+    }
+
+    function estimatePieceFromDimensions(width, height, pixels, baseUnitSize = null) {
+        const ratio = width / height;
+        const area = pixels.length;
+
+        console.log(`조각 추정: ${width}x${height}, 비율=${ratio.toFixed(2)}, 픽셀=${area}`);
+
+        // 너무 큰 영역은 조각 아이콘이 아닐 가능성이 높음
+        if (width > 200 || height > 200 || area > 100000) {
+            console.log('영역이 너무 큼 - 조각 아이콘이 아님');
+            return null;
+        }
+
+        // 1x1 기준 단위가 있으면 상대 크기로 판단
+        if (baseUnitSize) {
+            const relativeWidth = width / baseUnitSize.width;
+            const relativeHeight = height / baseUnitSize.height;
+            const relativeArea = area / baseUnitSize.area;
+            
+            console.log(`1x1 기준 상대 크기: ${relativeWidth.toFixed(2)}x${relativeHeight.toFixed(2)}, 면적 비율=${relativeArea.toFixed(2)}`);
+            
+            // 1x1 기준으로 몇 칸인지 계산 (반올림)
+            const gridWidth = Math.round(relativeWidth);
+            const gridHeight = Math.round(relativeHeight);
+            const gridArea = Math.round(relativeArea);
+            
+            console.log(`격자 크기 추정: ${gridWidth}x${gridHeight} (면적: ${gridArea})`);
+            
+            // 격자 크기로 조각 모양 판단
+            if (gridWidth === 1 && gridHeight === 1) {
+                return '1x1';
+            }
+            
+            if (gridWidth === 2 && gridHeight === 2) {
+                return '2x2';
+            }
+            
+            if (gridWidth === 1 && gridHeight === 2) {
+                return '1x2';
+            }
+            
+            if (gridWidth === 1 && gridHeight === 3) {
+                return '1x3';
+            }
+            
+            if (gridWidth === 1 && gridHeight === 4) {
+                return '1x4';
+            }
+            
+            if (gridWidth === 2 && gridHeight === 1) {
+                return '1x2'; // 가로 1x2
+            }
+            
+            if (gridWidth === 3 && gridHeight === 1) {
+                return '1x3'; // 가로 1x3
+            }
+            
+            if (gridWidth === 4 && gridHeight === 1) {
+                return '1x4'; // 가로 1x4
+            }
+            
+            // L자 모양: 면적이 3이고, 가로/세로가 2x2가 아님
+            if (gridArea === 3 && !(gridWidth === 2 && gridHeight === 2)) {
+                return 'L3';
+            }
+            
+            // 면적이 3인데 정사각형이면 L3로 추정
+            if (gridArea === 3) {
+                return 'L3';
+            }
+        }
+
+        // 1x1 기준이 없으면 기존 방식 사용 (비율 + 면적)
+        // 조각 아이콘의 실제 모양을 분석
+        // 픽셀 분포를 분석하여 L자, 막대, 정사각형 등을 구분
+        
+        // 1. 정사각형에 가까운 모양 (비율 0.7~1.4)
+        if (ratio > 0.7 && ratio < 1.4) {
+            if (area < 500) return '1x1';
+            if (area < 2000) return '2x2';
+            // L자 모양일 가능성 (정사각형이지만 비대칭)
+            return 'L3';
+        }
+        
+        // 2. 가로로 긴 모양 (막대)
+        if (ratio > 1.4) {
+            if (area < 800) return '1x2';
+            if (area < 2000) return '1x3';
+            if (area < 4000) return '1x4';
+            return '1x4';
+        }
+        
+        // 3. 세로로 긴 모양 (막대)
+        if (ratio < 0.7) {
+            if (area < 800) return '1x2';
+            if (area < 2000) return '1x3';
+            if (area < 4000) return '1x4';
+            return '1x3';
+        }
+
+        // 기본값: L자 모양 (가장 흔한 복잡한 모양)
+        console.log('복잡한 모양 - L3로 추정');
+        return 'L3';
+    }
+    
+    // 조각 아이콘의 픽셀 패턴을 분석하여 실제 모양 추정
+    function analyzePiecePattern(pixels, width, height) {
+        if (pixels.length === 0) return null;
+        
+        // 픽셀을 그리드로 변환
+        const grid = [];
+        for (let y = 0; y < height; y++) {
+            grid[y] = [];
+            for (let x = 0; x < width; x++) {
+                grid[y][x] = false;
+            }
+        }
+        
+        pixels.forEach(p => {
+            if (p.x >= 0 && p.x < width && p.y >= 0 && p.y < height) {
+                grid[p.y][p.x] = true;
+            }
+        });
+        
+        // 실제 모양 분석
+        // 1. 막대 모양 체크 (가로 또는 세로로 연속된 픽셀)
+        const isHorizontalBar = checkHorizontalBar(grid, width, height);
+        const isVerticalBar = checkVerticalBar(grid, width, height);
+        
+        if (isHorizontalBar) {
+            const barLength = getHorizontalBarLength(grid, width, height);
+            if (barLength <= 2) return '1x2';
+            if (barLength <= 3) return '1x3';
+            return '1x4';
+        }
+        
+        if (isVerticalBar) {
+            const barLength = getVerticalBarLength(grid, width, height);
+            if (barLength <= 2) return '1x2';
+            if (barLength <= 3) return '1x3';
+            return '1x4';
+        }
+        
+        // 2. 정사각형 체크
+        if (checkSquare(grid, width, height)) {
+            return '2x2';
+        }
+        
+        // 3. L자 모양 체크
+        if (checkLShape(grid, width, height)) {
+            return 'L3';
+        }
+        
+        return null;
+    }
+    
+    function checkHorizontalBar(grid, width, height) {
+        // 가로 막대: 한 행에 대부분의 픽셀이 있고, 다른 행에는 거의 없음
+        let maxRowPixels = 0;
+        let maxRow = -1;
+        let totalRowPixels = 0;
+        
+        for (let y = 0; y < height; y++) {
+            let rowPixels = 0;
+            for (let x = 0; x < width; x++) {
+                if (grid[y][x]) rowPixels++;
+            }
+            totalRowPixels += rowPixels;
+            if (rowPixels > maxRowPixels) {
+                maxRowPixels = rowPixels;
+                maxRow = y;
+            }
+        }
+        
+        // 최대 행이 전체 픽셀의 60% 이상을 차지하고, 가로 비율이 1.3 이상이면 막대로 간주
+        const totalPixels = grid.flat().filter(c => c).length;
+        const ratio = width / height;
+        return maxRowPixels > totalPixels * 0.6 && ratio > 1.3;
+    }
+    
+    function checkVerticalBar(grid, width, height) {
+        // 세로 막대: 한 열에 대부분의 픽셀이 있고, 다른 열에는 거의 없음
+        let maxColPixels = 0;
+        let maxCol = -1;
+        
+        for (let x = 0; x < width; x++) {
+            let colPixels = 0;
+            for (let y = 0; y < height; y++) {
+                if (grid[y][x]) colPixels++;
+            }
+            if (colPixels > maxColPixels) {
+                maxColPixels = colPixels;
+                maxCol = x;
+            }
+        }
+        
+        // 최대 열이 전체 픽셀의 60% 이상을 차지하고, 세로 비율이 0.7 이하면 막대로 간주
+        const totalPixels = grid.flat().filter(c => c).length;
+        const ratio = width / height;
+        return maxColPixels > totalPixels * 0.6 && ratio < 0.7;
+    }
+    
+    function getHorizontalBarLength(grid, width, height) {
+        let maxLength = 0;
+        for (let y = 0; y < height; y++) {
+            let length = 0;
+            for (let x = 0; x < width; x++) {
+                if (grid[y][x]) {
+                    length++;
+                } else {
+                    maxLength = Math.max(maxLength, length);
+                    length = 0;
+                }
+            }
+            maxLength = Math.max(maxLength, length);
+        }
+        return maxLength;
+    }
+    
+    function getVerticalBarLength(grid, width, height) {
+        let maxLength = 0;
+        for (let x = 0; x < width; x++) {
+            let length = 0;
+            for (let y = 0; y < height; y++) {
+                if (grid[y][x]) {
+                    length++;
+                } else {
+                    maxLength = Math.max(maxLength, length);
+                    length = 0;
+                }
+            }
+            maxLength = Math.max(maxLength, length);
+        }
+        return maxLength;
+    }
+    
+    function checkSquare(grid, width, height) {
+        // 정사각형: 가로와 세로 비율이 비슷하고, 픽셀이 정사각형 영역에 집중
+        const ratio = width / height;
+        if (ratio < 0.7 || ratio > 1.4) return false;
+        
+        // 픽셀이 중앙에 집중되어 있는지 확인
+        const centerX = width / 2;
+        const centerY = height / 2;
+        const radius = Math.min(width, height) / 2;
+        
+        let centerPixels = 0;
+        let totalPixels = 0;
+        
+        for (let y = 0; y < height; y++) {
+            for (let x = 0; x < width; x++) {
+                if (grid[y][x]) {
+                    totalPixels++;
+                    const dist = Math.sqrt(Math.pow(x - centerX, 2) + Math.pow(y - centerY, 2));
+                    if (dist < radius) {
+                        centerPixels++;
+                    }
+                }
+            }
+        }
+        
+        return centerPixels > totalPixels * 0.6;
+    }
+    
+    function checkLShape(grid, width, height) {
+        // L자 모양: 두 개의 막대가 직각으로 만나는 형태
+        // 간단한 휴리스틱: 가로 막대와 세로 막대가 모두 존재하지만 완전한 막대는 아님
+        const hasHorizontal = checkHorizontalBar(grid, width, height);
+        const hasVertical = checkVerticalBar(grid, width, height);
+        
+        // 둘 다 막대가 아니지만, 가로와 세로 방향 모두에 픽셀이 분산되어 있으면 L자 가능성
+        if (!hasHorizontal && !hasVertical) {
+            // 픽셀 분포 확인
+            let maxRowPixels = 0;
+            let maxColPixels = 0;
+            
+            for (let y = 0; y < height; y++) {
+                let rowPixels = 0;
+                for (let x = 0; x < width; x++) {
+                    if (grid[y][x]) rowPixels++;
+                }
+                maxRowPixels = Math.max(maxRowPixels, rowPixels);
+            }
+            
+            for (let x = 0; x < width; x++) {
+                let colPixels = 0;
+                for (let y = 0; y < height; y++) {
+                    if (grid[y][x]) colPixels++;
+                }
+                maxColPixels = Math.max(maxColPixels, colPixels);
+            }
+            
+            const totalPixels = grid.flat().filter(c => c).length;
+            // 가로와 세로 모두에 상당한 픽셀이 있으면 L자 가능성
+            return maxRowPixels > totalPixels * 0.3 && maxColPixels > totalPixels * 0.3;
+        }
+        
+        return false;
+    }
+
+    function estimateGradeFromColor(avgColor) {
+        const { r, g, b } = avgColor;
+
+        console.log(`Grade detection - R:${r.toFixed(0)}, G:${g.toFixed(0)}, B:${b.toFixed(0)}`);
+
+        // HSV 변환으로 더 정확한 색상 판단
+        const max = Math.max(r, g, b);
+        const min = Math.min(r, g, b);
+        const delta = max - min;
+        
+        let h = 0;
+        if (delta !== 0) {
+            if (max === r) {
+                h = ((g - b) / delta) % 6;
+            } else if (max === g) {
+                h = (b - r) / delta + 2;
+            } else {
+                h = (r - g) / delta + 4;
+            }
+        }
+        h = Math.round(h * 60);
+        if (h < 0) h += 360;
+        
+        const s = max === 0 ? 0 : delta / max;
+        const v = max / 255;
+
+        console.log(`HSV - H:${h}, S:${s.toFixed(2)}, V:${v.toFixed(2)}`);
+
+        // 실제 게임 색상 기준:
+        // 레어 = 파랑 배경
+        // 에픽 = 보라색 배경
+        // 슈퍼에픽 = 빨강 배경
+
+        // 에픽 (보라색 계열) - H: 260-300 (보라색)
+        // 보라색은 빨강과 파랑이 섞인 색상이므로 R과 B가 모두 높고 G가 낮음
+        if (h >= 260 && h <= 300) {
+            console.log('Detected: epic (purple)');
+            return 'epic';
+        }
+
+        // 레어 (파랑 계열) - H: 200-260 (파란색, 보라색이 아닌 순수 파랑)
+        if (h >= 200 && h < 260 && s > 0.3 && v > 0.4) {
+            console.log('Detected: rare (blue)');
+            return 'rare';
+        }
+
+        // 슈퍼에픽 (빨강 계열) - H: 0-20, 340-360 (빨강)
+        if ((h >= 0 && h <= 20) || (h >= 340 && h <= 360)) {
+            if (s > 0.4 && v > 0.5) {
+                console.log('Detected: super (red)');
+                return 'super';
+            }
+        }
+
+        // RGB 기반 폴백 (HSV가 불확실한 경우)
+        // 에픽: 보라색 계열 (R과 B가 모두 높고 G가 낮음)
+        // 보라색 판단: R과 B가 비슷하게 높고, G는 낮음
+        const purpleRatio = (r + b) / (g + 1); // G가 0일 수 있으므로 +1
+        if (r > 60 && b > 60 && r > g * 1.2 && b > g * 1.2 && purpleRatio > 2.0) {
+            console.log('Detected: epic (purple RGB fallback)');
+            return 'epic';
+        }
+
+        // 레어: 파랑 계열 (B가 높고 R, G가 낮음, 보라색이 아님)
+        if (b > r + 20 && b > g + 20 && b > 80 && purpleRatio < 2.5) {
+            console.log('Detected: rare (blue RGB fallback)');
+            return 'rare';
+        }
+
+        // 슈퍼에픽: 빨강 계열 (R이 높고 G, B가 낮음)
+        if (r > 150 && r > g + 30 && r > b + 30 && g < 120 && b < 120) {
+            console.log('Detected: super (red RGB fallback)');
+            return 'super';
+        }
+
+        // Default to rare
+        console.log('Detected: rare (default)');
+        return 'rare';
+    }
+
+    function fillPiecesFromVision(pieceData) {
+        // Clear all inputs first
+        Object.entries(PIECES).forEach(([name, piece]) => {
+            const grades = ['rare', 'epic', 'super'];
+            grades.forEach(grade => {
+                const countInput = document.getElementById(`piece-count-${name}-${grade}`);
+                if (countInput) {
+                    countInput.value = '0';
+                }
+            });
+        });
+
+        // 1단계: 같은 조각(pieceName + grade)을 그룹화하고 count 합산
+        const pieceCountMap = new Map(); // key: "pieceName-grade", value: total count
+        
+        pieceData.forEach((data, index) => {
+            const { pieceName, grade, count } = data;
+            const countValue = count !== undefined ? count : 1; // count가 없으면 1로 가정
+
+            if (pieceName && grade) {
+                // 조각 이름과 등급이 모두 인식된 경우
+                const key = `${pieceName}-${grade}`;
+                const currentCount = pieceCountMap.get(key) || 0;
+                pieceCountMap.set(key, currentCount + countValue);
+                console.log(`조각 카운트: ${pieceName} (${grade}) = ${currentCount + countValue} (기존: ${currentCount}, 추가: ${countValue})`);
+            }
+        });
+
+        // 2단계: 합산된 count를 입력 필드에 입력
+        let successCount = 0;
+        let partialCount = 0;
+        const unmatchedPieces = []; // 매칭되지 않은 조각들
+        const usedInputs = new Set(); // 이미 사용된 입력 필드 추적
+
+        pieceCountMap.forEach((totalCount, key) => {
+            const [pieceName, grade] = key.split('-');
+            const inputId = `piece-count-${pieceName}-${grade}`;
+            const countInput = document.getElementById(inputId);
+            
+            if (countInput) {
+                countInput.value = totalCount.toString();
+                usedInputs.add(inputId); // 사용된 입력 필드로 표시
+                successCount++;
+                console.log(`✅ 조각 인식 성공: ${pieceName} (${grade}) = ${totalCount}`);
+            } else {
+                // 입력 필드를 찾을 수 없는 경우
+                unmatchedPieces.push({ pieceName, grade, count: totalCount });
+                partialCount++;
+                console.log(`⚠️ 입력 필드 없음: ${pieceName} (${grade}) = ${totalCount}`);
+            }
+        });
+
+        // 3단계: 조각 이름이나 등급이 인식되지 않은 조각들 처리
+        pieceData.forEach((data, index) => {
+            const { pieceName, grade, count } = data;
+            const countValue = count !== undefined ? count : 1;
+
+            if (!pieceName || !grade) {
+                // 조각 이름이나 등급이 인식되지 않은 경우
+                unmatchedPieces.push({ grade: grade || 'rare', count: countValue, index });
+                partialCount++;
+                if (!pieceName && !grade) {
+                    console.log(`⚠️ 개수만 인식: ${countValue}`);
+                } else if (!pieceName) {
+                    console.log(`⚠️ 부분 인식: 등급=${grade}, 개수=${countValue}, 조각명=미인식`);
+                }
+            }
+        });
+
+        // 매칭되지 않은 조각들을 순서대로 배치
+        // 조각 목록을 순서대로 가져오기 (palette에 표시된 순서)
+        const pieceNames = Object.keys(PIECES);
+        
+        // 각 조각을 순서대로 다른 입력 필드에 배치 (중복 방지)
+        unmatchedPieces.forEach((unmatched, idx) => {
+            // 현재 인덱스부터 시작해서 해당 등급의 조각 찾기
+            let found = false;
+            for (let i = 0; i < pieceNames.length && !found; i++) {
+                const name = pieceNames[i];
+                const inputId = `piece-count-${name}-${unmatched.grade}`;
+                
+                // 이미 사용된 입력 필드는 건너뛰기
+                if (usedInputs.has(inputId)) continue;
+                
+                const countInput = document.getElementById(inputId);
+                if (countInput && countInput.value === '0') {
+                    countInput.value = unmatched.count.toString();
+                    usedInputs.add(inputId);
+                    partialCount++;
+                    console.log(`📝 순서 매칭: ${name} (${unmatched.grade}) = ${unmatched.count}`);
+                    found = true;
+                }
+            }
+            
+            // 해당 등급에서 찾지 못하면 다른 등급도 시도
+            if (!found) {
+                const grades = ['rare', 'epic', 'super'];
+                for (let i = 0; i < pieceNames.length && !found; i++) {
+                    const name = pieceNames[i];
+                    for (const grade of grades) {
+                        const inputId = `piece-count-${name}-${grade}`;
+                        
+                        // 이미 사용된 입력 필드는 건너뛰기
+                        if (usedInputs.has(inputId)) continue;
+                        
+                        const countInput = document.getElementById(inputId);
+                        if (countInput && countInput.value === '0') {
+                            countInput.value = unmatched.count.toString();
+                            usedInputs.add(inputId);
+                            partialCount++;
+                            console.log(`📝 순서 매칭 (등급 변경): ${name} (${grade}) = ${unmatched.count}`);
+                            found = true;
+                            break;
+                        }
+                    }
+                }
+            }
+        });
+
+        // 결과 메시지
+        const totalRecognizedPieces = pieceCountMap.size;
+        const totalCount = Array.from(pieceCountMap.values()).reduce((sum, count) => sum + count, 0);
+        
+        if (successCount > 0) {
+            solutionSummary.textContent = `✅ ${totalRecognizedPieces}종류의 조각을 인식했습니다! (총 ${totalCount}개)${partialCount > 0 ? ` (${partialCount}개 부분 인식)` : ''}`;
+            solutionSummary.style.color = '#10b981';
+        } else if (partialCount > 0) {
+            solutionSummary.textContent = `⚠️ ${partialCount}개의 조각 개수를 인식했지만, 조각 종류나 등급을 확인할 수 없습니다. 수동으로 확인해주세요.`;
+            solutionSummary.style.color = '#f59e0b';
+        } else {
+            solutionSummary.textContent = `❌ 조각 정보를 인식할 수 없습니다. 이미지 품질을 확인하거나 수동으로 입력해주세요.`;
+            solutionSummary.style.color = '#f5576c';
+        }
+        
+        solutionsContainer.innerHTML = '';
+    }
+
+    // 유사한 조각 이름 찾기 (부분 매칭)
+    function findSimilarPiece(pieceName) {
+        if (!pieceName) return null;
+        
+        const pieceNames = Object.keys(PIECES);
+        const lowerPieceName = pieceName.toLowerCase();
+        
+        // 정확한 매칭
+        if (pieceNames.includes(pieceName)) {
+            return pieceName;
+        }
+        
+        // 부분 매칭 (예: "1x1_1" → "1x1")
+        const baseName = pieceName.split('_')[0];
+        const matchingPiece = pieceNames.find(name => name.startsWith(baseName));
+        if (matchingPiece) {
+            return matchingPiece;
+        }
+        
+        // 유사도 기반 매칭
+        let bestMatch = null;
+        let bestScore = 0;
+        
+        pieceNames.forEach(name => {
+            const score = calculateSimilarity(lowerPieceName, name.toLowerCase());
+            if (score > bestScore && score > 0.5) {
+                bestScore = score;
+                bestMatch = name;
+            }
+        });
+        
+        return bestMatch;
+    }
+
+    // 문자열 유사도 계산 (간단한 Levenshtein 거리 기반)
+    function calculateSimilarity(str1, str2) {
+        const longer = str1.length > str2.length ? str1 : str2;
+        const shorter = str1.length > str2.length ? str2 : str1;
+        
+        if (longer.length === 0) return 1.0;
+        
+        const distance = levenshteinDistance(longer, shorter);
+        return (longer.length - distance) / longer.length;
+    }
+
+    function levenshteinDistance(str1, str2) {
+        const matrix = [];
+        for (let i = 0; i <= str2.length; i++) {
+            matrix[i] = [i];
+        }
+        for (let j = 0; j <= str1.length; j++) {
+            matrix[0][j] = j;
+        }
+        for (let i = 1; i <= str2.length; i++) {
+            for (let j = 1; j <= str1.length; j++) {
+                if (str2.charAt(i - 1) === str1.charAt(j - 1)) {
+                    matrix[i][j] = matrix[i - 1][j - 1];
+                } else {
+                    matrix[i][j] = Math.min(
+                        matrix[i - 1][j - 1] + 1,
+                        matrix[i][j - 1] + 1,
+                        matrix[i - 1][j] + 1
+                    );
+                }
+            }
+        }
+        return matrix[str2.length][str1.length];
+    }
+
+    function fillPiecesFromOCR(numbers) {
+        // Clear all existing inputs first
+        Object.entries(PIECES).forEach(([name, piece]) => {
+            const grades = ['rare', 'epic', 'super'];
+            grades.forEach(grade => {
+                const countInput = document.getElementById(`piece-count-${name}-${grade}`);
+                if (countInput) {
+                    countInput.value = '0';
+                }
+            });
+        });
+
+        // Strategy: Fill sequentially based on piece order in PIECES
+        // User can adjust manually if needed
+        let numberIndex = 0;
+        const pieceNames = Object.keys(PIECES);
+        const grades = ['rare', 'epic', 'super'];
+
+        // Fill each piece-grade combination with available numbers
+        for (let i = 0; i < pieceNames.length && numberIndex < numbers.length; i++) {
+            for (let j = 0; j < grades.length && numberIndex < numbers.length; j++) {
+                const name = pieceNames[i];
+                const grade = grades[j];
+                const countInput = document.getElementById(`piece-count-${name}-${grade}`);
+
+                if (countInput) {
+                    const value = parseInt(numbers[numberIndex], 10);
+                    // Only use reasonable numbers (0-99)
+                    if (value >= 0 && value <= 99) {
+                        countInput.value = value.toString();
+                        numberIndex++;
+                    }
+                }
+            }
+        }
+
+        solutionSummary.textContent = `📷 OCR로 ${numberIndex}개의 조각 정보를 입력했습니다!`;
+        solutionsContainer.innerHTML = '';
+    }
+
+
+// 새로운 이미지 기반 조각 인식 시스템 (OCR 제거)
+async function recognizePiecesWithCV(file) {
+    console.log("Starting image-based piece recognition...");
+
+    // 1. 이미지 로드
+    const img = new Image();
+    await new Promise(resolve => {
+        img.onload = resolve;
+        img.src = URL.createObjectURL(file);
+    });
+
+    console.log(`Image loaded: ${img.width}x${img.height}`);
+
+    // 2. OpenCV Mat으로 변환
+    const src = cv.imread(img);
+    const gray = new cv.Mat();
+    cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
+
+    // 3. 조각 박스 감지
+    const boxes = detectPieceBoxes(src, gray, img);
+    console.log(`Detected ${boxes.length} piece boxes`);
+
+    if (boxes.length === 0) {
+        src.delete();
+        gray.delete();
+        URL.revokeObjectURL(img.src);
+        return [];
+    }
+
+    // 4. 각 박스에서 조각 패턴 추출 및 매칭
+    const pieceCounts = {}; // { pieceName-grade: count }
+
+    for (let i = 0; i < boxes.length; i++) {
+        const box = boxes[i];
+
+        // 배경색으로 등급 판별
+        const { grade, bgColor } = detectGradeFromBox(src, box);
+
+        // 그리드 분석으로 조각 모양 추출 (배경색 기반)
+        const extractedShape = extractShapeFromImage(src, box, bgColor, i);
+
+        console.log(`Piece ${i}: Extracted shape:`, extractedShape);
+
+        // 추출한 모양으로 조각 이름 찾기
+        const pieceName = findPieceNameByShape(extractedShape);
+
+        if (pieceName) {
+            const key = `${pieceName}-${grade}`;
+            pieceCounts[key] = (pieceCounts[key] || 0) + 1;
+            console.log(`✓ Piece ${i}: ${pieceName} (${grade})`);
+        } else {
+            console.warn(`✗ Piece ${i}: Could not identify (shape: ${JSON.stringify(extractedShape)})`);
+        }
+    }
+
+    // 5. 결과를 배열로 변환
+    const result = [];
+    for (const [key, count] of Object.entries(pieceCounts)) {
+        const [pieceName, grade] = key.split('-');
+        result.push({
+            pieceName: pieceName,
+            grade: grade,
+            count: count
+        });
+    }
+
+    // 6. 메모리 정리
+    src.delete();
+    gray.delete();
+    URL.revokeObjectURL(img.src);
+
+    console.log(`Recognition complete: ${result.length} piece types found`);
+    return result;
+}
+
+// 조각 박스 감지
+function detectPieceBoxes(src, gray, img) {
+    // 이진화
+    const binary = new cv.Mat();
+    cv.threshold(gray, binary, 128, 255, cv.THRESH_BINARY);
+
+    // 윤곽선 검출
+    const contours = new cv.MatVector();
+    const hierarchy = new cv.Mat();
+    cv.findContours(binary, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+
+    console.log(`Found ${contours.size()} contours`);
+
+    // 조각 박스 필터링
+    const minArea = (img.width / 20) * (img.height / 20); // 최소 면적
+    const maxArea = (img.width / 5) * (img.height / 5);   // 최대 면적
+
+    const boxes = [];
+    for (let i = 0; i < contours.size(); i++) {
+        const contour = contours.get(i);
+        const area = cv.contourArea(contour);
+
+        if (area > minArea && area < maxArea) {
+            const rect = cv.boundingRect(contour);
+
+            // 종횡비 확인 (조각 박스는 대략 정사각형)
+            const aspectRatio = rect.width / rect.height;
+            if (aspectRatio > 0.5 && aspectRatio < 2.0) {
+                boxes.push(rect);
+            }
+        }
+    }
+
+    // 레이아웃 감지: 가로 배치 vs 그리드 배치
+    // Y 좌표 분산이 작으면 가로 배치, 크면 그리드 배치
+    const yValues = boxes.map(b => b.y);
+    const avgY = yValues.reduce((sum, y) => sum + y, 0) / yValues.length;
+    const yVariance = yValues.reduce((sum, y) => sum + Math.pow(y - avgY, 2), 0) / yValues.length;
+    const yStdDev = Math.sqrt(yVariance);
+
+    console.log(`Y standard deviation: ${yStdDev.toFixed(1)} (threshold: ${img.height / 10})`);
+
+    // 그리드 레이아웃 감지 (Y 좌표 변동이 크면)
+    const isGridLayout = yStdDev > img.height / 10;
+
+    if (isGridLayout) {
+        // 그리드: Y 좌표로 먼저 정렬 (위->아래), 같은 행에서는 X로 정렬 (왼->오)
+        console.log('Grid layout detected - sorting by rows');
+        boxes.sort((a, b) => {
+            const rowDiff = a.y - b.y;
+            if (Math.abs(rowDiff) > img.height / 20) {
+                return rowDiff; // 다른 행
+            }
+            return a.x - b.x; // 같은 행
+        });
+    } else {
+        // 가로 배치: X 좌표로만 정렬 (왼쪽에서 오른쪽)
+        console.log('Horizontal layout detected - sorting left to right');
+        boxes.sort((a, b) => a.x - b.x);
+
+        // 가로 배치에서는 첫 번째 박스의 Y 좌표와 높이를 기준으로 모든 박스 정렬
+        if (boxes.length > 0) {
+            const referenceY = boxes[0].y;
+            const referenceHeight = boxes[0].height;
+
+            console.log(`Aligning all boxes to first box: y=${referenceY}, height=${referenceHeight}`);
+
+            boxes.forEach(box => {
+                box.y = referenceY;
+                box.height = referenceHeight;
+            });
+        }
+    }
+
+    // 메모리 정리
+    binary.delete();
+    contours.delete();
+    hierarchy.delete();
+
+    return boxes;
+}
+
+// 배경색으로 등급 판별 (배경색도 반환)
+function detectGradeFromBox(src, box) {
+    // 박스의 상단 10% 영역에서 배경색 샘플링
+    const sampleHeight = Math.floor(box.height * 0.1);
+    const sampleY = box.y + 5; // 약간 아래에서 샘플링
+
+    // ROI 추출
+    const roi = src.roi(new cv.Rect(box.x + 5, sampleY, box.width - 10, sampleHeight));
+
+    // 평균 색상 계산
+    const mean = cv.mean(roi);
+    roi.delete();
+
+    const r = mean[0];
+    const g = mean[1];
+    const b = mean[2];
+
+    console.log(`  Background color: R=${r.toFixed(0)}, G=${g.toFixed(0)}, B=${b.toFixed(0)}`);
+
+    // 색상 기반 등급 판별
+    // 레어: 파란색 (B가 가장 높음)
+    // 에픽: 보라색 (R과 B가 모두 높음)
+    // 슈퍼: 빨간색/노란색 (R이 매우 높음)
+
+    let grade;
+    // 보라색 (epic): R과 B가 모두 높음
+    if (r > 150 && b > 200 && b > r) {
+        grade = 'epic';
+    }
+    // 파란색 (rare): B가 가장 높음
+    else if (b > r + 30 && b > g + 20) {
+        grade = 'rare';
+    }
+    // 빨간색/분홍색 (super): R이 매우 높음
+    else if (r > 200 && r > b + 30) {
+        grade = 'super';
+    }
+    // 노란색 (super): R과 G가 높음
+    else if (r > 150 && g > 150 && b < 100) {
+        grade = 'super';
+    }
+    else {
+        grade = 'rare';
+    }
+
+    return {
+        grade: grade,
+        bgColor: { r: r, g: g, b: b }
+    };
+}
+
+// 조각 아이콘 이미지 해시 추출
+function extractIconHash(src, box, index, debugContainer) {
+    // 박스에서 아이콘 추출 (상단 "장착중" 태그 제외)
+    const marginLeft = 0.15;   // 좌측 15% 제외
+    const marginRight = 0.15;  // 우측 15% 제외
+    const marginTop = 0.25;    // 상단 25% 제외 (장착중 태그)
+    const marginBottom = 0.15; // 하단 15% 제외
+
+    const iconX = box.x + Math.floor(box.width * marginLeft);
+    const iconY = box.y + Math.floor(box.height * marginTop);
+    const iconW = Math.floor(box.width * (1 - marginLeft - marginRight));
+    const iconH = Math.floor(box.height * (1 - marginTop - marginBottom));
+
+    // ROI 추출
+    const iconRoi = src.roi(new cv.Rect(iconX, iconY, iconW, iconH));
+
+    // 그레이스케일 변환
+    const grayIcon = new cv.Mat();
+    cv.cvtColor(iconRoi, grayIcon, cv.COLOR_RGBA2GRAY);
+
+    // 이진화 (형태만 추출, 색상 무시)
+    const binaryIcon = new cv.Mat();
+    cv.threshold(grayIcon, binaryIcon, 0, 255, cv.THRESH_BINARY + cv.THRESH_OTSU);
+
+    // 8x8로 리사이즈 (해시 생성용)
+    const small = new cv.Mat();
+    cv.resize(binaryIcon, small, new cv.Size(8, 8), 0, 0, cv.INTER_AREA);
+
+    // 평균 해시 계산 (리사이즈된 윤곽선 이미지 사용)
+    let sum = 0;
+    const pixels = [];
+    for (let y = 0; y < 8; y++) {
+        for (let x = 0; x < 8; x++) {
+            const pixel = small.ucharPtr(y, x)[0];
+            pixels.push(pixel);
+            sum += pixel;
+        }
+    }
+    const avg = sum / 64;
+
+    // 디버깅: 픽셀 값 확인
+    if (index < 3) {
+        console.log(`Piece ${index} pixels:`, pixels.slice(0, 16), '... avg:', avg);
+    }
+
+    // 평균보다 밝으면 1, 어두우면 0
+    let hash = '';
+    let onesCount = 0;
+    for (let i = 0; i < 64; i++) {
+        const bit = pixels[i] >= avg ? '1' : '0';
+        hash += bit;
+        if (bit === '1') onesCount++;
+    }
+
+    // 디버깅: 해시 정보
+    if (index < 3) {
+        console.log(`Piece ${index} hash:`, hash, `(${onesCount}/64 ones)`);
+    }
+
+    // 디버깅 정보 표시
+    if (debugContainer) {
+        const debugItem = document.createElement('div');
+        debugItem.style.cssText = 'border: 2px solid #333; padding: 5px; background: white; text-align: center;';
+
+        const title = document.createElement('div');
+        title.textContent = `#${index}`;
+        title.style.fontWeight = 'bold';
+        debugItem.appendChild(title);
+
+        // 원본 아이콘
+        const originalCanvas = document.createElement('canvas');
+        cv.imshow(originalCanvas, iconRoi);
+        originalCanvas.style.width = '80px';
+        originalCanvas.style.height = '80px';
+        originalCanvas.style.imageRendering = 'pixelated';
+        originalCanvas.style.border = '1px solid #ccc';
+        const originalLabel = document.createElement('div');
+        originalLabel.textContent = '원본';
+        originalLabel.style.fontSize = '10px';
+        debugItem.appendChild(originalLabel);
+        debugItem.appendChild(originalCanvas);
+
+        // 무늬 제거 이미지 (실제 비교 이미지)
+        const closedCanvas = document.createElement('canvas');
+        cv.imshow(closedCanvas, closed);
+        closedCanvas.style.width = '80px';
+        closedCanvas.style.height = '80px';
+        closedCanvas.style.imageRendering = 'pixelated';
+        closedCanvas.style.border = '1px solid #333';
+        const closedLabel = document.createElement('div');
+        closedLabel.textContent = '비교용';
+        closedLabel.style.fontSize = '10px';
+        closedLabel.style.marginTop = '5px';
+        debugItem.appendChild(closedLabel);
+        debugItem.appendChild(closedCanvas);
+
+        const hashInfo = document.createElement('div');
+        hashInfo.style.fontSize = '9px';
+        hashInfo.style.wordBreak = 'break-all';
+        hashInfo.style.maxWidth = '100px';
+        hashInfo.style.marginTop = '5px';
+        hashInfo.textContent = `avg=${avg.toFixed(1)}, hash=${hash.substring(0, 16)}...`;
+        debugItem.appendChild(hashInfo);
+
+        debugContainer.appendChild(debugItem);
+    }
+
+    // 메모리 정리
+    iconRoi.delete();
+    small.delete();
+    grayIcon.delete();
+    blurred.delete();
+    binaryIcon.delete();
+    closed.delete();
+
+    return { hash: hash, avg: avg, pixels: pixels };
+}
+
+// 같은 해시를 가진 조각들 그룹핑
+function groupPiecesByHash(pieces) {
+    const hashMap = new Map();
+
+    pieces.forEach(piece => {
+        const hash = piece.hash;
+
+        // 유사한 해시 찾기 (Hamming 거리 < 15)
+        let foundGroup = null;
+        for (const [groupHash, group] of hashMap.entries()) {
+            const distance = hammingDistance(hash, groupHash);
+            if (distance < 15) { // 유사도 임계값 (더 관대하게)
+                foundGroup = groupHash;
+                break;
+            }
+        }
+
+        if (foundGroup) {
+            hashMap.get(foundGroup).push(piece);
+        } else {
+            hashMap.set(hash, [piece]);
+        }
+    });
+
+    return Array.from(hashMap.values());
+}
+
+// Hamming 거리 계산 (두 해시의 차이)
+function hammingDistance(hash1, hash2) {
+    let distance = 0;
+    for (let i = 0; i < hash1.length && i < hash2.length; i++) {
+        if (hash1[i] !== hash2[i]) distance++;
+    }
+    return distance;
+}
+
+// 조각 이미지에서 그리드 패턴 추출 (1x1 칸 단위로 분석, 배경색 기반)
+function extractShapeFromImage(src, box, bgColor, index) {
+    // 고정 여백 사용 (간단하고 안정적)
+    const marginLeft = 0.08;
+    const marginRight = 0.08;
+    const marginTop = 0.08;  // 작은 여백만 (태그 없는 이미지 대응)
+    const marginBottom = 0.08;
+
+    const iconX = box.x + Math.floor(box.width * marginLeft);
+    const iconY = box.y + Math.floor(box.height * marginTop);
+    const iconW = Math.floor(box.width * (1 - marginLeft - marginRight));
+    const iconH = Math.floor(box.height * (1 - marginTop - marginBottom));
+
+    const iconRoi = src.roi(new cv.Rect(iconX, iconY, iconW, iconH));
+    const result = extractShapeFromRoi(iconRoi, bgColor, index);
+    iconRoi.delete();
+
+    return result;
+}
+
+// ROI에서 그리드 패턴 추출 (하이브리드: 엣지 + 색상 기반)
+function extractShapeFromRoi(iconRoi, bgColor, index) {
+    const iconW = iconRoi.cols;
+    const iconH = iconRoi.rows;
+
+    // 하이브리드 접근: 엣지 검출 + 색상 기반
+    const binary = new cv.Mat();
+    const gray = new cv.Mat();
+
+    // === 방법 1: 엣지 검출 (테두리 기반) ===
+    cv.cvtColor(iconRoi, gray, cv.COLOR_RGBA2GRAY);
+
+    // Canny 엣지 검출
+    const edges = new cv.Mat();
+    cv.Canny(gray, edges, 30, 100);
+
+    // 엣지를 두껍게 (테두리 연결)
+    const kernel = cv.getStructuringElement(cv.MORPH_RECT, new cv.Size(3, 3));
+    cv.dilate(edges, edges, kernel);
+
+    // 윤곽선 찾기
+    const edgeContours = new cv.MatVector();
+    const edgeHierarchy = new cv.Mat();
+    cv.findContours(edges, edgeContours, edgeHierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+
+    // 가장 큰 윤곽선 찾기 (조각일 가능성 높음)
+    let maxArea = 0;
+    let maxContourIdx = -1;
+    for (let i = 0; i < edgeContours.size(); i++) {
+        const area = cv.contourArea(edgeContours.get(i));
+        if (area > maxArea) {
+            maxArea = area;
+            maxContourIdx = i;
+        }
+    }
+
+    // 엣지 기반 마스크 생성
+    const edgeMask = cv.Mat.zeros(iconH, iconW, cv.CV_8UC1);
+    if (maxContourIdx >= 0) {
+        cv.drawContours(edgeMask, edgeContours, maxContourIdx, new cv.Scalar(255), cv.FILLED);
+    }
+
+    edgeContours.delete();
+    edgeHierarchy.delete();
+    edges.delete();
+
+    // === 방법 2: 색상 기반 (배경 제거) ===
+    const tolerance = 60;
+    const lower = new cv.Mat(iconRoi.rows, iconRoi.cols, iconRoi.type(),
+        [Math.max(0, bgColor.r - tolerance),
+         Math.max(0, bgColor.g - tolerance),
+         Math.max(0, bgColor.b - tolerance),
+         0]);
+    const upper = new cv.Mat(iconRoi.rows, iconRoi.cols, iconRoi.type(),
+        [Math.min(255, bgColor.r + tolerance),
+         Math.min(255, bgColor.g + tolerance),
+         Math.min(255, bgColor.b + tolerance),
+         255]);
+
+    const colorMask = new cv.Mat();
+    cv.inRange(iconRoi, lower, upper, colorMask);
+    cv.bitwise_not(colorMask, colorMask); // 반전
+
+    lower.delete();
+    upper.delete();
+
+    // === 두 마스크 결합 (OR 연산) ===
+    cv.bitwise_or(edgeMask, colorMask, binary);
+
+    edgeMask.delete();
+    colorMask.delete();
+    gray.delete();
+
+    // 모폴로지 연산: 노이즈 제거
+    cv.morphologyEx(binary, binary, cv.MORPH_OPEN, kernel);
+    cv.morphologyEx(binary, binary, cv.MORPH_CLOSE, kernel);
+    kernel.delete();
+
+    // 최종 윤곽선 찾고 내부 채우기
+    const contours = new cv.MatVector();
+    const hierarchy = new cv.Mat();
+    cv.findContours(binary, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+
+    const contourCount = contours.size();
+
+    // 모든 윤곽선의 내부를 흰색으로 채우기
+    for (let i = 0; i < contourCount; i++) {
+        cv.drawContours(binary, contours, i, new cv.Scalar(255), cv.FILLED);
+    }
+
+    contours.delete();
+    hierarchy.delete();
+
+    if (index === 0) {
+        console.log(`  Filled ${contourCount} contours (hybrid: edge + color)`);
+    }
+
+    // 실제 조각의 bounding box 찾기
+    let minX = iconW, maxX = 0, minY = iconH, maxY = 0;
+    let totalFilled = 0;
+
+    for (let y = 0; y < iconH; y++) {
+        for (let x = 0; x < iconW; x++) {
+            const pixel = binary.ucharPtr(y, x)[0];
+            if (pixel > 128) {
+                totalFilled++;
+                minX = Math.min(minX, x);
+                maxX = Math.max(maxX, x);
+                minY = Math.min(minY, y);
+                maxY = Math.max(maxY, y);
+            }
+        }
+    }
+
+    // 조각이 없으면 빈 배열 반환
+    if (totalFilled === 0) {
+        console.warn(`  No filled pixels found! Background color might be too similar to piece color.`);
+        binary.delete();
+        return [];
+    }
+
+    // 조각의 실제 크기
+    const pieceW = maxX - minX + 1;
+    const pieceH = maxY - minY + 1;
+
+    console.log(`  Bounding box: minX=${minX}, maxX=${maxX}, minY=${minY}, maxY=${maxY}, totalFilled=${totalFilled}`);
+
+    // 셀 크기 추정 (가장 작은 변을 기준으로)
+    const minDim = Math.min(pieceW, pieceH);
+    const estimatedCellSize = minDim / Math.max(1, Math.floor(minDim / 20)); // 대략 20px per cell
+
+    // 그리드 크기 계산
+    const gridCols = Math.max(1, Math.round(pieceW / estimatedCellSize));
+    const gridRows = Math.max(1, Math.round(pieceH / estimatedCellSize));
+
+    // 그리드 크기 제한 (1~5칸)
+    const finalGridCols = Math.min(5, Math.max(1, gridCols));
+    const finalGridRows = Math.min(5, Math.max(1, gridRows));
+
+    const cellWidth = pieceW / finalGridCols;
+    const cellHeight = pieceH / finalGridRows;
+
+    console.log(`  Grid analysis: piece=${pieceW}x${pieceH}, grid=${finalGridRows}x${finalGridCols}, cell=${cellWidth.toFixed(1)}x${cellHeight.toFixed(1)}`);
+
+    // 각 그리드 칸 검사
+    const shape = [];
+    for (let row = 0; row < finalGridRows; row++) {
+        for (let col = 0; col < finalGridCols; col++) {
+            const cellX = minX + col * cellWidth;
+            const cellY = minY + row * cellHeight;
+
+            // 셀 영역의 픽셀 샘플링 (70% 영역)
+            const sampleMargin = 0.15;
+            const sampleX = Math.floor(cellX + cellWidth * sampleMargin);
+            const sampleY = Math.floor(cellY + cellHeight * sampleMargin);
+            const sampleW = Math.floor(cellWidth * (1 - sampleMargin * 2));
+            const sampleH = Math.floor(cellHeight * (1 - sampleMargin * 2));
+
+            if (sampleW > 0 && sampleH > 0 &&
+                sampleX + sampleW <= iconW &&
+                sampleY + sampleH <= iconH) {
+
+                const cellRoi = binary.roi(new cv.Rect(sampleX, sampleY, sampleW, sampleH));
+                const mean = cv.mean(cellRoi);
+                cellRoi.delete();
+
+                // 디버그: 첫 번째 조각의 각 셀 밝기 출력
+                if (index === 0) {
+                    console.log(`    Cell [${row},${col}]: mean=${mean[0].toFixed(1)}, filled=${mean[0] > 128}`);
+                }
+
+                // 평균 밝기가 128 이상이면 채워진 칸
+                if (mean[0] > 128) {
+                    shape.push([row, col]);
+                }
+            } else {
+                if (index === 0) {
+                    console.log(`    Cell [${row},${col}]: OUT OF BOUNDS (sampleW=${sampleW}, sampleH=${sampleH})`);
+                }
+            }
+        }
+    }
+
+    // 패턴 정규화
+    const bestMatch = normalizeShape(shape);
+
+    binary.delete();
+
+    return bestMatch || [];
+}
+
+// 조각 패턴 정규화 (좌상단 정렬)
+function normalizeShape(shape) {
+    if (shape.length === 0) return [];
+
+    const minRow = Math.min(...shape.map(p => p[0]));
+    const minCol = Math.min(...shape.map(p => p[1]));
+
+    return shape.map(p => [p[0] - minRow, p[1] - minCol]);
+}
+
+// 두 조각 패턴 비교
+function shapesMatch(shape1, shape2) {
+    if (shape1.length !== shape2.length) return false;
+
+    // 좌표를 문자열로 변환해서 집합 비교
+    const set1 = new Set(shape1.map(p => `${p[0]},${p[1]}`));
+    const set2 = new Set(shape2.map(p => `${p[0]},${p[1]}`));
+
+    if (set1.size !== set2.size) return false;
+
+    for (const coord of set1) {
+        if (!set2.has(coord)) return false;
+    }
+
+    return true;
+}
+
+// 추출한 패턴으로 조각 이름 찾기
+function findPieceNameByShape(extractedShape) {
+    if (!extractedShape || extractedShape.length === 0) {
+        console.warn('⚠️ Empty shape extracted');
+        return null;
+    }
+
+    // PIECES 객체에서 매칭되는 조각 찾기
+    for (const [pieceName, pieceData] of Object.entries(PIECES)) {
+        const pieceShape = normalizeShape(pieceData.shape);
+
+        if (shapesMatch(extractedShape, pieceShape)) {
+            console.log(`✓ Matched shape to ${pieceName}`);
+            return pieceName;
+        }
+    }
+
+    console.warn(`⚠️ No matching piece found for shape:`, extractedShape);
+    return null;
+}
+    function fillPiecesFromCV(pieceData) {
+        clearPieces();
+
+        let successCount = 0;
+
+        pieceData.forEach((data, index) => {
+            const { pieceName, grade, count } = data;
+            const countInput = document.getElementById(`piece-count-${pieceName}-${grade}`);
+
+            if (countInput) {
+                // 기존 값에 추가
+                const currentValue = parseInt(countInput.value) || 0;
+                countInput.value = currentValue + count;
+                console.log(`✓ Set piece-count-${pieceName}-${grade} = ${count}`);
+                successCount++;
+            } else {
+                console.warn(`✗ Could not find input: piece-count-${pieceName}-${grade}`);
+            }
+        });
+
+        console.log(`Successfully filled ${successCount}/${pieceData.length} pieces`);
+    }
+
     function solve() {
         // Step 1: Check if map is created
         const targetCellCount = gridState.filter(Boolean).length;
