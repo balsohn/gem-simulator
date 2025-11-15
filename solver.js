@@ -2413,9 +2413,9 @@ function detectPieceBoxes(src, gray, img) {
 
 // 배경색으로 등급 판별 (배경색도 반환)
 function detectGradeFromBox(src, box) {
-    // 박스의 상단 10% 영역에서 배경색 샘플링
+    // 박스의 상단 영역에서 배경색 샘플링 ("장착중" 태그 아래 영역 사용)
     const sampleHeight = Math.floor(box.height * 0.1);
-    const sampleY = box.y + 5; // 약간 아래에서 샘플링
+    const sampleY = box.y + Math.floor(box.height * 0.20); // 상단 20% 아래에서 샘플링 (태그 회피)
 
     // ROI 추출
     const roi = src.roi(new cv.Rect(box.x + 5, sampleY, box.width - 10, sampleHeight));
@@ -2616,11 +2616,11 @@ function hammingDistance(hash1, hash2) {
 
 // 조각 이미지에서 그리드 패턴 추출 (1x1 칸 단위로 분석, 배경색 기반)
 function extractShapeFromImage(src, box, bgColor, index) {
-    // 고정 여백 사용 (간단하고 안정적)
-    const marginLeft = 0.08;
-    const marginRight = 0.08;
-    const marginTop = 0.08;  // 작은 여백만 (태그 없는 이미지 대응)
-    const marginBottom = 0.08;
+    // 상단 여백을 크게 하여 "장착중" 태그 제외
+    const marginLeft = 0.15;
+    const marginRight = 0.15;
+    const marginTop = 0.28;    // 상단 28% 제외 (장착중 태그 대응)
+    const marginBottom = 0.15;
 
     const iconX = box.x + Math.floor(box.width * marginLeft);
     const iconY = box.y + Math.floor(box.height * marginTop);
@@ -2638,8 +2638,12 @@ function extractShapeFromImage(src, box, bgColor, index) {
 // ===== 디버그용 조각 추출 함수 =====
 // 조각 모양 추출 + 시각화를 위한 캔버스 3개 생성
 function extractShapeFromImageWithDebug(src, box, bgColor, index, grade) {
-    // 원본 이미지에서 조각 영역만 추출 (여백 8% 제거)
-    const marginLeft = 0.08, marginRight = 0.08, marginTop = 0.08, marginBottom = 0.08;
+    // 원본 이미지에서 조각 영역만 추출 (여백 제거)
+    // 상단 여백을 크게 하여 "장착중" 태그 제외
+    const marginLeft = 0.15;
+    const marginRight = 0.15;
+    const marginTop = 0.28;    // 상단 28% 제외 (장착중 태그 대응)
+    const marginBottom = 0.15;
     const iconX = box.x + Math.floor(box.width * marginLeft);
     const iconY = box.y + Math.floor(box.height * marginTop);
     const iconW = Math.floor(box.width * (1 - marginLeft - marginRight));
