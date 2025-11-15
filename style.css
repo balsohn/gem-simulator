@@ -301,9 +301,9 @@ h1 {
 }
 
 .slot.current {
-    border-color: #f1c40f;
-    transform: scale(1.15);
-    box-shadow: 0 0 20px rgba(241, 196, 15, 0.8);
+    border-color: #f1c40f !important;
+    transform: scale(1.15) !important;
+    box-shadow: 0 0 20px rgba(241, 196, 15, 0.8) !important;
 }
 
 @keyframes pulse {
@@ -312,6 +312,32 @@ h1 {
     }
     50% {
         box-shadow: 0 0 25px rgba(231, 76, 60, 1);
+    }
+}
+
+/* 자동 추천 */
+.auto-recommendation {
+    background: linear-gradient(135deg, #667eea, #764ba2);
+    padding: 15px 20px;
+    border-radius: 10px;
+    margin: 20px auto;
+    max-width: 600px;
+    text-align: center;
+    color: white;
+    font-size: 1.1em;
+    font-weight: bold;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    animation: slideIn 0.3s ease-out;
+}
+
+@keyframes slideIn {
+    from {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
     }
 }
 
