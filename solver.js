@@ -3707,12 +3707,9 @@ function findPieceNameByShape(extractedShape) {
         // Step 2: Collect pieces from inputs
         piecesToUse = [];
         let piecesCellCount = 0;
-        const pieceCounts = {};
 
         Object.entries(PIECES).forEach(([name, piece]) => {
-            // 3개 등급별로 개수 입력 확인
             const grades = ['rare', 'epic', 'super'];
-
             grades.forEach(grade => {
                 const countInput = document.getElementById(`piece-count-${name}-${grade}`);
                 if (countInput) {
@@ -3720,7 +3717,6 @@ function findPieceNameByShape(extractedShape) {
                     if (count > 0) {
                         const pieceScore = calculateScore(piece.cellCount, grade);
                         for (let i = 0; i < count; i++) {
-                            // We need to create unique names for each piece instance
                             const uniqueName = `${name}_${grade}_${i}`;
                             piecesToUse.push({ name: uniqueName, ...piece, score: pieceScore, grade: grade });
                             piecesCellCount += piece.shape.length;
@@ -3736,24 +3732,25 @@ function findPieceNameByShape(extractedShape) {
         }
 
         // 우선순위 세트 읽기 (1, 2, 3순위)
-        const prioritySet1 = document.getElementById('priority-set-1')?.value || '';
-        const prioritySet2 = document.getElementById('priority-set-2')?.value || '';
-        const prioritySet3 = document.getElementById('priority-set-3')?.value || '';
-        const prioritySets = [prioritySet1, prioritySet2, prioritySet3].filter(s => s);
+        const prioritySets = [
+            document.getElementById('priority-set-1')?.value,
+            document.getElementById('priority-set-2')?.value,
+            document.getElementById('priority-set-3')?.value
+        ].filter(s => s && s !== "");
 
-        // 조각 정렬: 1순위 → 2순위 → 3순위 → 높은 점수 → 작은 조각
+        // 조각 정렬: 우선순위 → 높은 점수 → 큰 조각 순으로 변경
         if (PRIORITIZE_HIGH_SCORE) {
             piecesToUse.sort((a, b) => {
-                // 1. 우선순위 세트 비교
-                const aPriority = prioritySets.indexOf(a.set);
-                const bPriority = prioritySets.indexOf(b.set);
+                const getPriorityLevel = (set) => {
+                    const index = prioritySets.indexOf(set);
+                    return index === -1 ? 4 : index + 1; // 1, 2, 3순위 또는 4(기타)
+                };
 
-                // a가 우선순위에 있고 b가 없으면 a를 앞으로
-                if (aPriority >= 0 && bPriority < 0) return -1;
-                // b가 우선순위에 있고 a가 없으면 b를 앞으로
-                if (bPriority >= 0 && aPriority < 0) return 1;
-                // 둘 다 우선순위에 있으면 더 높은 우선순위를 앞으로
-                if (aPriority >= 0 && bPriority >= 0 && aPriority !== bPriority) {
+                const aPriority = getPriorityLevel(a.set);
+                const bPriority = getPriorityLevel(b.set);
+
+                // 1. 우선순위 레벨로 정렬
+                if (aPriority !== bPriority) {
                     return aPriority - bPriority;
                 }
 
@@ -3762,16 +3759,14 @@ function findPieceNameByShape(extractedShape) {
                     return b.score - a.score;
                 }
 
-                // 3. 점수가 같으면 칸 수가 적은 것 우선
-                return a.shape.length - b.shape.length;
+                // 3. 점수가 같으면 칸 수가 많은 것 우선 (큰 조각부터)
+                return b.shape.length - a.shape.length;
             });
         }
 
-        // 조각 개수 제한 설정 (DLX 탐색 시 적용)
         const MAX_UNIQUE_PIECES = 1;
         const MAX_REGULAR_PIECES = 15;
 
-        // Step 3: Set up and run DLX solver
         dlxSolutions = [];
         dlxStartTime = Date.now();
         isSolving = true;
@@ -3791,14 +3786,15 @@ function findPieceNameByShape(extractedShape) {
 
         setTimeout(() => {
             try {
-                bestScoreFound = -Infinity; // Reset for each new search
-                bestSolution = []; // Reset for each new search
-                bestCellsFilled = 0; // Reset for each new search
-                allSolutions = []; // Reset for each new search
-                maxUniquePieces = MAX_UNIQUE_PIECES; // 전역 변수에 저장
-                maxRegularPieces = MAX_REGULAR_PIECES; // 전역 변수에 저장
+                bestScoreFound = -Infinity;
+                bestSolution = [];
+                bestCellsFilled = 0;
+                allSolutions = [];
+                maxUniquePieces = MAX_UNIQUE_PIECES;
+                maxRegularPieces = MAX_REGULAR_PIECES;
                 const root = createDlxMatrix(board, piecesToUse);
-                search(root);
+                // *** 변경점: search 함수에 prioritySets 전달 ***
+                search(root, [], 0, prioritySets);
             } catch (e) {
                 console.error("DLX Solver Error:", e);
             }
@@ -3808,71 +3804,39 @@ function findPieceNameByShape(extractedShape) {
             resetGridBtn.disabled = false;
             clearPiecesBtn.disabled = false;
 
-            // 해결책 평가 및 정렬 (우선순위 세트 + 최대 저항)
-            if (prioritySets.length > 0) {
-                // 우선순위가 설정된 경우: 똑똑한 평가
-                allSolutions.forEach(sol => {
-                    const processed = processDlxSolution(sol.solution, sol.score);
-                    const setCellCounts = processed.setCellCounts || {};
+            // 모든 찾은 해결책에 대해 최종 점수 계산
+            allSolutions.forEach(sol => {
+                const processed = processDlxSolution(sol.solution, sol.score);
+                sol.totalResistance = processed.score; // 세트 보너스 포함 총 저항
+                sol.processed = processed; // 나중에 다시 사용하기 위해 저장
+            });
 
-                    // 우선순위 점수 계산
-                    let priorityScore = 0;
-                    prioritySets.forEach((prioritySet, index) => {
-                        const cellCount = setCellCounts[prioritySet] || 0;
-                        // 각 threshold 달성시 점수 부여
-                        SET_BONUS_THRESHOLDS.forEach(threshold => {
-                            if (cellCount >= threshold) {
-                                // 1순위는 가중치 1000, 2순위는 100, 3순위는 10
-                                const weight = index === 0 ? 1000 : (index === 1 ? 100 : 10);
-                                priorityScore += weight;
-                            }
-                        });
-                    });
-
-                    sol.priorityScore = priorityScore;
-                    sol.totalResistance = processed.score; // 세트 보너스 포함 총 저항
-                });
-
-                // 정렬: 칸 수 > 총 저항 > 우선순위 점수
-                allSolutions.sort((a, b) => {
-                    // 1. 채운 칸 수가 많을수록 우선
-                    if (b.cellsFilled !== a.cellsFilled) {
-                        return b.cellsFilled - a.cellsFilled;
-                    }
-                    // 2. 총 저항이 높을수록 우선
-                    if (b.totalResistance !== a.totalResistance) {
-                        return b.totalResistance - a.totalResistance;
-                    }
-                    // 3. 우선순위 점수가 높을수록 우선
-                    return b.priorityScore - a.priorityScore;
-                });
-            } else {
-                // 우선순위 없음: 기존 방식 (칸 수 > 점수)
-                allSolutions.sort((a, b) => {
-                    if (b.cellsFilled !== a.cellsFilled) {
-                        return b.cellsFilled - a.cellsFilled;
-                    }
-                    return b.score - a.score;
-                });
-            }
+            // *** 중요: 최종 해결책 정렬 기준 수정 ***
+            // 1. 총 저항(점수)이 높을수록 우선
+            // 2. 점수가 같으면 채운 칸 수가 많을수록 우선
+            allSolutions.sort((a, b) => {
+                if (b.totalResistance !== a.totalResistance) {
+                    return b.totalResistance - a.totalResistance;
+                }
+                return b.cellsFilled - a.cellsFilled;
+            });
 
             if (allSolutions.length > 0) {
                 solutionsContainer.innerHTML = '';
                 
-                // 최대 10개의 해결책 렌더링
                 const solutionsToShow = allSolutions.slice(0, MAX_SOLUTIONS);
                 solutionsToShow.forEach((sol, index) => {
-                    const processedSolution = processDlxSolution(sol.solution, sol.score);
-                    renderSolution(processedSolution.board, processedSolution.score, index + 1, processedSolution.usedPieces, processedSolution.pieceGrades, processedSolution.pieceSets, processedSolution.setBonusDetails, processedSolution.baseScore, processedSolution.setBonus);
+                    // 이미 처리된 정보 사용
+                    const p = sol.processed;
+                    renderSolution(p.board, p.score, index + 1, p.usedPieces, p.pieceGrades, p.pieceSets, p.setBonusDetails, p.baseScore, p.setBonus);
                 });
 
                 const elapsed = ((Date.now() - dlxStartTime) / 1000).toFixed(1);
                 const bestSol = allSolutions[0];
                 const maxFilled = bestSol.cellsFilled;
                 const totalCells = board.filter(id => id >= 0).length;
-                const solutionCount = solutionsToShow.length;
+                const solutionCount = allSolutions.length;
 
-                // 우선 세트 정보 추가 (1/2/3순위)
                 let priorityInfo = '';
                 if (prioritySets.length > 0) {
                     const priorityLabels = ['🥇', '🥈', '🥉'];
@@ -3882,22 +3846,8 @@ function findPieceNameByShape(extractedShape) {
                     priorityInfo = ` [${priorityNames}]`;
                 }
 
-                if (solutionCount === 1) {
-                    solutionSummary.textContent = `✅ 최적의 배치 방법을 찾았습니다!${priorityInfo} (저항: ${bestSol.score}, ${maxFilled}/${totalCells}칸 채움, ${elapsed}초)`;
-                } else {
-                    solutionSummary.textContent = `✅ ${solutionCount}개의 해결책을 찾았습니다!${priorityInfo} (최고 저항: ${bestSol.score}, ${maxFilled}/${totalCells}칸 채움, ${elapsed}초)`;
-                }
+                solutionSummary.textContent = `✅ ${solutionCount}개의 유효한 조합을 찾았습니다!${priorityInfo} (최고 저항: ${bestSol.totalResistance}, ${maxFilled}/${totalCells}칸, ${elapsed}초)`;
 
-            } else if (bestSolution.length > 0) {
-                // 해결책이 없지만 bestSolution은 있는 경우 (이론적으로는 발생하지 않아야 함)
-                const processedSolution = processDlxSolution(bestSolution, bestScoreFound);
-                solutionsContainer.innerHTML = '';
-                renderSolution(processedSolution.board, processedSolution.score, 1, processedSolution.usedPieces, processedSolution.pieceGrades, processedSolution.pieceSets, processedSolution.setBonusDetails, processedSolution.baseScore, processedSolution.setBonus);
-                
-                const elapsed = ((Date.now() - dlxStartTime) / 1000).toFixed(1);
-                const maxFilled = processedSolution.board.filter(id => id > 0).length;
-                const totalCells = board.filter(id => id >= 0).length;
-                solutionSummary.textContent = `✅ 최적의 배치 방법을 찾았습니다! (저항: ${bestScoreFound}, ${maxFilled}/${totalCells}칸 채움, ${elapsed}초)`;
             } else {
                 const elapsed = ((Date.now() - dlxStartTime) / 1000).toFixed(1);
                 solutionSummary.textContent = `❌ 배치 방법을 찾지 못했습니다. (${elapsed}초)`;
@@ -4392,168 +4342,61 @@ function findPieceNameByShape(extractedShape) {
     let bestScoreFound = -Infinity;
     let bestSolution = [];
     let bestCellsFilled = 0;
-    let allSolutions = []; // 여러 해결책 저장
-    let maxUniquePieces = 1; // 최대 유니크 조각 수
-    let maxRegularPieces = 15; // 최대 일반 조각 수
+    let allSolutions = [];
+    let maxUniquePieces = 1;
+    let maxRegularPieces = 15;
 
-    function search(root, partialSolution = [], currentScore = 0) {
+    function search(root, partialSolution = [], currentScore = 0, prioritySets = []) {
         if (Date.now() - dlxStartTime > MAX_TIME_MS) {
             return;
         }
 
-        // Count how many primary columns are still uncovered
         let uncoveredPrimaryCount = 0;
-        let current = root.R;
-        while (current !== root) {
+        for (let current = root.R; current !== root; current = current.R) {
             if (current.type === 'primary') {
                 uncoveredPrimaryCount++;
             }
-            current = current.R;
         }
 
-        // Calculate how many cells are currently filled in this partial solution
         const filledCellsSet = new Set();
+        const setCellCounts = {}; // 현재 partialSolution의 세트별 칸 수 계산
         partialSolution.forEach(node => {
             let pieceNode = node;
-            while (!pieceNode.pieceInfo && pieceNode.R !== node) {
-                pieceNode = pieceNode.R;
-            }
+            while (!pieceNode.pieceInfo && pieceNode.R !== node) pieceNode = pieceNode.R;
             if (pieceNode.pieceInfo) {
                 const { piece, pos } = pieceNode.pieceInfo;
-                piece.shape.forEach(([dr, dc]) => {
-                    const r = pos[0] + dr;
-                    const c = pos[1] + dc;
-                    filledCellsSet.add(r * GRID_SIZE + c);
-                });
+                piece.shape.forEach(([dr, dc]) => filledCellsSet.add((pos[0] + dr) * GRID_SIZE + (pos[1] + dc)));
+                // 새로운 로직: setCellCounts 업데이트
+                if (piece.set) {
+                    setCellCounts[piece.set] = (setCellCounts[piece.set] || 0) + piece.shape.length;
+                }
             }
         });
         const currentCellsFilled = filledCellsSet.size;
 
-        // Update best solution if this is better (prioritize more cells filled, then higher score)
-        const isBetter = currentCellsFilled > bestCellsFilled || 
-                        (currentCellsFilled === bestCellsFilled && currentScore > bestScoreFound);
-        
-        if (isBetter) {
+        if (currentCellsFilled > bestCellsFilled || (currentCellsFilled === bestCellsFilled && currentScore > bestScoreFound)) {
             bestScoreFound = currentScore;
             bestSolution = [...partialSolution];
             bestCellsFilled = currentCellsFilled;
         }
 
-        // 해결책 저장 (최대 10개까지)
-        // 최고 채운 칸 수와 같은 해결책이거나, 최고 점수와 비슷한 해결책 저장
-        if (partialSolution.length > 0) {
-            const isTopSolution = currentCellsFilled === bestCellsFilled;
-            const isHighScore = bestScoreFound > 0 && currentScore >= bestScoreFound * 0.95;
-            
-            // 최고 칸 수를 채운 해결책이거나, 높은 점수 해결책 저장
-            if (isTopSolution || (isHighScore && allSolutions.length < MAX_SOLUTIONS)) {
-                // 중복 체크: 같은 점수와 같은 칸 수를 채운 해결책은 제외
-                const isDuplicate = allSolutions.some(sol => {
-                    if (sol.cellsFilled !== currentCellsFilled || sol.score !== currentScore) {
-                        return false;
-                    }
-                    // 해결책의 조각 구성이 같은지 확인
-                    const solPieces = sol.solution.map(node => {
-                        let pieceNode = node;
-                        while (!pieceNode.pieceInfo && pieceNode.R !== node) {
-                            pieceNode = pieceNode.R;
-                        }
-                        return pieceNode.pieceInfo ? pieceNode.pieceInfo.piece.name : null;
-                    }).sort().join(',');
-                    
-                    const currentPieces = partialSolution.map(node => {
-                        let pieceNode = node;
-                        while (!pieceNode.pieceInfo && pieceNode.R !== node) {
-                            pieceNode = pieceNode.R;
-                        }
-                        return pieceNode.pieceInfo ? pieceNode.pieceInfo.piece.name : null;
-                    }).sort().join(',');
-                    
-                    return solPieces === currentPieces;
-                });
-                
-                if (!isDuplicate) {
-                    allSolutions.push({
-                        solution: [...partialSolution],
-                        score: currentScore,
-                        cellsFilled: currentCellsFilled
-                    });
-                    
-                    // 점수와 칸 수 기준으로 정렬하고 최대 10개만 유지
-                    allSolutions.sort((a, b) => {
-                        if (b.cellsFilled !== a.cellsFilled) {
-                            return b.cellsFilled - a.cellsFilled; // 더 많은 칸 우선
-                        }
-                        return b.score - a.score; // 같은 칸 수면 높은 점수 우선
-                    });
-                    
-                    // 최대 10개만 유지
-                    if (allSolutions.length > MAX_SOLUTIONS) {
-                        allSolutions = allSolutions.slice(0, MAX_SOLUTIONS);
-                    }
+        if (uncoveredPrimaryCount === 0 || partialSolution.length > 0) {
+             const isDuplicate = allSolutions.some(sol => sol.cellsFilled === currentCellsFilled && sol.score === currentScore);
+            if (!isDuplicate) {
+                allSolutions.push({ solution: [...partialSolution], score: currentScore, cellsFilled: currentCellsFilled });
+                allSolutions.sort((a, b) => b.cellsFilled - a.cellsFilled || b.score - a.score);
+                if (allSolutions.length > MAX_SOLUTIONS * 2) {
+                    allSolutions = allSolutions.slice(0, MAX_SOLUTIONS * 2);
                 }
             }
         }
+        
+        if (uncoveredPrimaryCount === 0) return;
 
-        // If all primary columns are covered, a complete solution is found
-        if (uncoveredPrimaryCount === 0) {
-            // 완전한 해결책도 저장
-            if (partialSolution.length > 0) {
-                const isDuplicate = allSolutions.some(sol => {
-                    if (sol.cellsFilled !== currentCellsFilled || sol.score !== currentScore) {
-                        return false;
-                    }
-                    const solPieces = sol.solution.map(node => {
-                        let pieceNode = node;
-                        while (!pieceNode.pieceInfo && pieceNode.R !== node) {
-                            pieceNode = pieceNode.R;
-                        }
-                        return pieceNode.pieceInfo ? pieceNode.pieceInfo.piece.name : null;
-                    }).sort().join(',');
-                    
-                    const currentPieces = partialSolution.map(node => {
-                        let pieceNode = node;
-                        while (!pieceNode.pieceInfo && pieceNode.R !== node) {
-                            pieceNode = pieceNode.R;
-                        }
-                        return pieceNode.pieceInfo ? pieceNode.pieceInfo.piece.name : null;
-                    }).sort().join(',');
-                    
-                    return solPieces === currentPieces;
-                });
-                
-                if (!isDuplicate) {
-                    allSolutions.push({
-                        solution: [...partialSolution],
-                        score: currentScore,
-                        cellsFilled: currentCellsFilled
-                    });
-                    
-                    allSolutions.sort((a, b) => {
-                        if (b.cellsFilled !== a.cellsFilled) {
-                            return b.cellsFilled - a.cellsFilled;
-                        }
-                        return b.score - a.score;
-                    });
-                    
-                    if (allSolutions.length > MAX_SOLUTIONS) {
-                        allSolutions = allSolutions.slice(0, MAX_SOLUTIONS);
-                    }
-                }
-            }
-            return;
-        }
-
-        // Choose column c (heuristic: smallest size) - only consider primary columns
         let c = root.R;
-        while (c !== root && c.type === 'secondary') { // Skip secondary columns for selection
-            c = c.R;
-        }
-        if (c === root) { // No primary columns left (shouldn't happen if uncoveredPrimaryCount > 0)
-            return;
-        }
+        while (c !== root && c.type === 'secondary') c = c.R;
+        if (c === root) return;
 
-        // Find the primary column with the smallest size (but skip size 0)
         let minSize = Infinity;
         let chosenCol = null;
         for (let j = c; j !== root; j = j.R) {
@@ -4563,125 +4406,86 @@ function findPieceNameByShape(extractedShape) {
             }
         }
 
-        // If no coverable column exists (all remaining cells can't be covered)
-        // Save current partial solution and return
-        if (chosenCol === null) {
-            return;
-        }
-
+        if (chosenCol === null) return;
         c = chosenCol;
 
-        // Collect all rows that cover column c and sort them by piece score (descending)
-        // 높은 점수 조각부터 우선 배치하도록 정렬
-        // 주석 처리하면 정렬 없이도 작동하지만, 탐색 효율성이 떨어질 수 있습니다
         const rowsToExplore = [];
         for (let r = c.D; r !== c; r = r.D) {
             let pieceNode = r;
-            // Find the node in the row that contains the piece info
-            while (!pieceNode.pieceInfo && pieceNode.R !== r) {
-                pieceNode = pieceNode.R;
-            }
+            while (!pieceNode.pieceInfo && pieceNode.R !== r) pieceNode = pieceNode.R;
             if (pieceNode.pieceInfo) {
-                const piece = pieceNode.pieceInfo.piece;
-                const pieceScore = piece.score;
-                // 조각의 원래 인덱스 찾기 (높은 점수 조각이 먼저 나오도록)
-                const pieceIndex = piecesToUse.findIndex(p => p.name === piece.name);
-                rowsToExplore.push({ 
-                    rowNode: r, 
-                    score: pieceScore,
-                    pieceIndex: pieceIndex >= 0 ? pieceIndex : Infinity
-                });
+                rowsToExplore.push({ rowNode: r, piece: pieceNode.pieceInfo.piece });
             }
         }
 
-        // 높은 점수 우선, 점수가 같으면 먼저 나온 조각 우선
-        // PRIORITIZE_HIGH_SCORE가 false면 모든 조각을 동등하게 탐색합니다
         if (PRIORITIZE_HIGH_SCORE) {
+            const getPriorityLevel = (set) => {
+                const index = prioritySets.indexOf(set);
+                return index === -1 ? 4 : index + 1;
+            };
             rowsToExplore.sort((a, b) => {
-                if (b.score !== a.score) {
-                    return b.score - a.score; // 높은 점수 우선
-                }
-                return a.pieceIndex - b.pieceIndex; // 같은 점수면 먼저 나온 조각 우선
+                const pieceA = a.piece;
+                const pieceB = b.piece;
+
+                // 새로운 로직: 21칸을 넘긴 세트의 조각은 후순위로
+                const isSetAMaxed = (setCellCounts[pieceA.set] || 0) >= 21;
+                const isSetBMaxed = (setCellCounts[pieceB.set] || 0) >= 21;
+
+                if (isSetAMaxed && !isSetBMaxed) return 1; // A는 21칸 넘김, B는 안 넘김 -> B 우선
+                if (!isSetAMaxed && isSetBMaxed) return -1; // B는 21칸 넘김, A는 안 넘김 -> A 우선
+
+                // 기존 우선순위 로직
+                const aPriority = getPriorityLevel(pieceA.set);
+                const bPriority = getPriorityLevel(pieceB.set);
+                if (aPriority !== bPriority) return aPriority - bPriority;
+                if (pieceB.score !== pieceA.score) return pieceB.score - pieceA.score;
+                return pieceB.shape.length - pieceA.shape.length;
             });
         }
 
         cover(c);
 
-        for (const { rowNode: r, score: pieceScore } of rowsToExplore) {
-            // Calculate how many new cells this piece would fill
+        for (const { rowNode: r } of rowsToExplore) {
             let pieceNode = r;
-            while (!pieceNode.pieceInfo && pieceNode.R !== r) {
-                pieceNode = pieceNode.R;
-            }
-
+            while (!pieceNode.pieceInfo && pieceNode.R !== r) pieceNode = pieceNode.R;
             if (pieceNode.pieceInfo) {
                 const { piece, pos } = pieceNode.pieceInfo;
-
-                // 조각 개수 제한 체크
-                let uniqueCount = 0;
-                let regularCount = 0;
+                let uniqueCount = 0, regularCount = 0;
                 partialSolution.forEach(node => {
                     let pNode = node;
-                    while (!pNode.pieceInfo && pNode.R !== node) {
-                        pNode = pNode.R;
-                    }
+                    while (!pNode.pieceInfo && pNode.R !== node) pNode = pNode.R;
                     if (pNode.pieceInfo) {
-                        if (pNode.pieceInfo.piece.isUnique) {
-                            uniqueCount++;
-                        } else {
-                            regularCount++;
-                        }
+                        pNode.pieceInfo.piece.isUnique ? uniqueCount++ : regularCount++;
                     }
                 });
 
-                // 이 조각을 추가하면 제한을 초과하는지 확인
-                if (piece.isUnique && uniqueCount >= maxUniquePieces) {
-                    continue; // 유니크 조각 제한 초과, 이 조각 건너뛰기
-                }
-                if (!piece.isUnique && regularCount >= maxRegularPieces) {
-                    continue; // 일반 조각 제한 초과, 이 조각 건너뛰기
-                }
-                const newCells = piece.shape.map(([dr, dc]) => {
-                    const r = pos[0] + dr;
-                    const c = pos[1] + dc;
-                    return r * GRID_SIZE + c;
-                });
-                
-                // Count how many of these cells are not already filled
+                if (piece.isUnique && uniqueCount >= maxUniquePieces) continue;
+                if (!piece.isUnique && regularCount >= maxRegularPieces) continue;
+
+                const newCells = piece.shape.map(([dr, dc]) => (pos[0] + dr) * GRID_SIZE + (pos[1] + dc));
                 const actuallyNewCells = newCells.filter(cell => !filledCellsSet.has(cell));
-                
-                // 이 조각이 실제로 새로운 칸을 채울 수 있는지 확인
+
                 if (actuallyNewCells.length > 0) {
                     const potentialCellsFilled = currentCellsFilled + actuallyNewCells.length;
-                    const potentialScore = currentScore + pieceScore;
+                    const potentialScore = currentScore + piece.score;
                     
-                    // Pruning 완화: 더 많은 가능성을 탐색하도록 수정
-                    // 현재 해결책보다 좋거나, 아직 해결책이 없거나, 또는 최고 해결책의 80% 이상이면 탐색
+                    // 원래대로 가지치기(Pruning) 로직 완화
                     const shouldExplore = 
-                        bestCellsFilled === 0 || // 아직 해결책이 없으면 무조건 탐색
-                        potentialCellsFilled > bestCellsFilled || // 더 많은 칸을 채울 수 있으면
-                        (potentialCellsFilled === bestCellsFilled && potentialScore >= bestScoreFound) || // 같은 칸 수면 점수 비교
-                        (bestCellsFilled > 0 && potentialCellsFilled >= bestCellsFilled * 0.8); // 최고의 80% 이상이면 탐색
-                    
+                        bestCellsFilled === 0 ||
+                        potentialCellsFilled > bestCellsFilled ||
+                        (potentialCellsFilled === bestCellsFilled && potentialScore >= bestScoreFound) ||
+                        (bestCellsFilled > 0 && potentialCellsFilled >= bestCellsFilled * 0.8); // 95% -> 80%
+
                     if (shouldExplore) {
-                        // Cover all columns that this row covers (standard DLX)
-                        for (let j = r.R; j !== r; j = j.R) {
-                            cover(j.C);
-                        }
-                        
+                        for (let j = r.R; j !== r; j = j.R) cover(j.C);
                         partialSolution.push(r);
-                        search(root, partialSolution, potentialScore);
+                        search(root, partialSolution, potentialScore, prioritySets);
                         partialSolution.pop();
-                        
-                        // Uncover all columns that this row covers (standard DLX)
-                        for (let j = r.L; j !== r; j = j.L) {
-                            uncover(j.C);
-                        }
+                        for (let j = r.L; j !== r; j = j.L) uncover(j.C);
                     }
                 }
             }
         }
-
         uncover(c);
     }
 
