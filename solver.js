@@ -919,10 +919,22 @@ document.addEventListener('DOMContentLoaded', () => {
                 tabContent.appendChild(setSelectBlock);
 
                 // 인식된 조각 목록 표시
+                // 장착중 태그가 있는 조각이 있는지 확인
+                const hasGreenTagPieces = pieces.some(p => 
+                    p.pieceName === null && p.failedPieces && p.failedPieces.some(fp => fp.hasGreenTag)
+                );
+                
                 const piecesTitle = document.createElement('h4');
                 piecesTitle.textContent = `📦 인식된 조각 (총 ${pieces.length}종류)`;
+                if (hasGreenTagPieces) {
+                    piecesTitle.textContent += ' ⚠️ 장착중인 조각은 감지가 잘 안됩니다. 확인 후 선택해주세요.';
+                }
                 piecesTitle.style.color = '#555';
                 piecesTitle.style.marginBottom = '10px';
+                if (hasGreenTagPieces) {
+                    piecesTitle.style.color = '#d97706';
+                    piecesTitle.style.fontWeight = 'bold';
+                }
                 tabContent.appendChild(piecesTitle);
 
                 const piecesList = document.createElement('div');
@@ -931,19 +943,350 @@ document.addEventListener('DOMContentLoaded', () => {
                 piecesList.style.padding = '10px';
                 piecesList.style.background = '#f9f9f9';
                 piecesList.style.borderRadius = '8px';
+                piecesList.style.display = 'flex';
+                piecesList.style.flexWrap = 'wrap';
+                piecesList.style.gap = '8px';
 
-                pieces.forEach((data, pieceIndex) => {
-                    const { pieceName, grade, count } = data;
+                // 매칭 실패한 조각 또는 장착중 태그가 있는 조각을 맨 앞으로 정렬
+                const sortedPieces = [...pieces].sort((a, b) => {
+                    // a가 실패하거나 장착중 태그가 있으면 앞으로
+                    const aHasIssue = a.pieceName === null || (a.failedPieces && a.failedPieces.some(fp => fp.hasGreenTag));
+                    // b가 실패하거나 장착중 태그가 있으면 앞으로
+                    const bHasIssue = b.pieceName === null || (b.failedPieces && b.failedPieces.some(fp => fp.hasGreenTag));
+                    
+                    if (aHasIssue && !bHasIssue) return -1; // a가 문제, b가 정상 -> a가 앞
+                    if (!aHasIssue && bHasIssue) return 1;  // a가 정상, b가 문제 -> b가 앞
+                    return 0; // 둘 다 같으면 순서 유지
+                });
+
+                sortedPieces.forEach((data, sortedIndex) => {
+                    const { pieceName, grade, count, failedPieces } = data;
+                    
+                    // 원본 배열에서의 인덱스 찾기
+                    const originalPieceIndex = pieces.findIndex(p => p === data);
+
+                    // 매칭 실패한 조각 또는 장착중 태그가 있는 조각 처리
+                    if (pieceName === null && failedPieces) {
+                        // 매칭 실패한 조각들을 각각 표시
+                        failedPieces.forEach((failedPiece, failedIndex) => {
+                            const { grade: failedGrade, debug, hasGreenTag, pieceName: defaultPieceName } = failedPiece;
+                            
+                            // 등급별 배경색 설정
+                            let gradeColor = 'rgba(200, 200, 200, 0.2)'; // 회색 (매칭 실패)
+                            let gradeBorderColor = 'rgba(200, 200, 200, 0.5)';
+                            if (failedGrade === 'rare') {
+                                gradeColor = 'rgba(100, 150, 255, 0.2)';
+                                gradeBorderColor = 'rgba(100, 150, 255, 0.5)';
+                            } else if (failedGrade === 'epic') {
+                                gradeColor = 'rgba(200, 100, 255, 0.2)';
+                                gradeBorderColor = 'rgba(200, 100, 255, 0.5)';
+                            } else if (failedGrade === 'super') {
+                                gradeColor = 'rgba(255, 100, 100, 0.2)';
+                                gradeBorderColor = 'rgba(255, 100, 100, 0.5)';
+                            }
 
                     const pieceBlock = document.createElement('div');
-                    pieceBlock.style.marginBottom = '10px';
-                    pieceBlock.style.padding = '12px';
-                    pieceBlock.style.background = 'white';
+                            pieceBlock.style.marginBottom = '0';
+                            pieceBlock.style.padding = '8px';
+                            pieceBlock.style.background = gradeColor;
                     pieceBlock.style.borderRadius = '6px';
-                    pieceBlock.style.border = '1px solid #ddd';
+                            pieceBlock.style.border = `2px dashed ${gradeBorderColor}`; // 점선으로 매칭 실패 표시
                     pieceBlock.style.display = 'flex';
+                            pieceBlock.style.flexDirection = 'column';
                     pieceBlock.style.alignItems = 'center';
-                    pieceBlock.style.gap = '15px';
+                            pieceBlock.style.gap = '6px';
+                            pieceBlock.style.width = 'calc(20% - 7px)';
+                            pieceBlock.style.minWidth = '120px';
+                            pieceBlock.style.boxSizing = 'border-box';
+                            pieceBlock.style.cursor = 'pointer';
+                            pieceBlock.style.position = 'relative';
+                            // 고유 식별자 추가 (나중에 찾기 위해)
+                            pieceBlock.dataset.imageIndex = imageIndex;
+                            pieceBlock.dataset.pieceIndex = originalPieceIndex;
+                            pieceBlock.dataset.failedIndex = failedIndex;
+                            pieceBlock.dataset.isFailed = 'true';
+
+                            // 원본 이미지 표시
+                            if (debug && debug.originalCanvas) {
+                                const imgContainer = document.createElement('div');
+                                imgContainer.style.width = '100%';
+                                imgContainer.style.height = '80px';
+                                imgContainer.style.display = 'flex';
+                                imgContainer.style.alignItems = 'center';
+                                imgContainer.style.justifyContent = 'center';
+                                imgContainer.style.overflow = 'hidden';
+                                imgContainer.style.borderRadius = '4px';
+                                imgContainer.style.background = '#f0f0f0';
+                                
+                                const img = document.createElement('img');
+                                img.src = debug.originalCanvas.toDataURL();
+                                img.style.maxWidth = '100%';
+                                img.style.maxHeight = '100%';
+                                img.style.objectFit = 'contain';
+                                imgContainer.appendChild(img);
+                                pieceBlock.appendChild(imgContainer);
+                            }
+
+                            // 선택 버튼
+                            const selectButton = document.createElement('button');
+                            selectButton.textContent = hasGreenTag ? '장착중 조각 선택' : '조각 선택';
+                            selectButton.style.width = '100%';
+                            selectButton.style.padding = '8px';
+                            selectButton.style.fontSize = '0.75em';
+                            selectButton.style.borderRadius = '4px';
+                            selectButton.style.border = '1px solid #667eea';
+                            selectButton.style.background = '#667eea';
+                            selectButton.style.color = '#fff';
+                            selectButton.style.cursor = 'pointer';
+                            selectButton.style.fontWeight = 'bold';
+                            
+                            // 장착중 태그가 있으면 테두리 색상 변경
+                            if (hasGreenTag) {
+                                pieceBlock.style.border = `2px dashed rgba(46, 204, 50, 0.8)`; // 녹색 점선으로 장착중 표시
+                            }
+                            
+                            // 선택된 조각 표시 영역
+                            const selectedDisplay = document.createElement('div');
+                            selectedDisplay.style.width = '100%';
+                            selectedDisplay.style.minHeight = '40px';
+                            selectedDisplay.style.padding = '4px';
+                            selectedDisplay.style.border = '1px solid #ddd';
+                            selectedDisplay.style.borderRadius = '4px';
+                            selectedDisplay.style.background = '#f9f9f9';
+                            selectedDisplay.style.display = 'none';
+                            selectedDisplay.style.flexDirection = 'column';
+                            selectedDisplay.style.alignItems = 'center';
+                            selectedDisplay.style.gap = '4px';
+                            
+                            // 기본값으로 선택된 조각이 있으면 표시
+                            if (defaultPieceName) {
+                                pieceBlock.dataset.selectedPiece = defaultPieceName;
+                                pieceBlock.dataset.selectedGrade = failedGrade;
+                                
+                                // 선택된 조각 표시
+                                selectedDisplay.style.display = 'flex';
+                                const templateData = COMMON_PIECE_TEMPLATES[defaultPieceName] || UNIQUE_PIECE_TEMPLATES[defaultPieceName];
+                                if (templateData) {
+                                    const tempPiece = {
+                                        shape: templateData.shape,
+                                        color: '#999999'
+                                    };
+                                    const selectedPreview = createPiecePreview(tempPiece);
+                                    selectedPreview.style.transform = 'scale(0.6)';
+                                    selectedDisplay.appendChild(selectedPreview);
+                                    
+                                    // 수정 버튼 추가
+                                    const editButton = document.createElement('button');
+                                    editButton.textContent = '수정';
+                                    editButton.style.marginTop = '4px';
+                                    editButton.style.padding = '4px 12px';
+                                    editButton.style.fontSize = '0.7em';
+                                    editButton.style.border = '1px solid #667eea';
+                                    editButton.style.borderRadius = '4px';
+                                    editButton.style.background = '#667eea';
+                                    editButton.style.color = '#fff';
+                                    editButton.style.cursor = 'pointer';
+                                    editButton.style.fontWeight = 'bold';
+                                    editButton.addEventListener('click', () => {
+                                        selectButton.click(); // 모달 다시 열기
+                                    });
+                                    selectedDisplay.appendChild(editButton);
+                                    
+                                    // 버튼 숨기기
+                                    selectButton.style.display = 'none';
+                                }
+                            }
+                            
+                            // 버튼 클릭 시 모달 열기
+                            selectButton.addEventListener('click', () => {
+                                // 모달 생성
+                                const modal = document.createElement('div');
+                                modal.style.position = 'fixed';
+                                modal.style.zIndex = '3000';
+                                modal.style.left = '0';
+                                modal.style.top = '0';
+                                modal.style.width = '100%';
+                                modal.style.height = '100%';
+                                modal.style.background = 'rgba(0,0,0,0.7)';
+                                modal.style.display = 'flex';
+                                modal.style.alignItems = 'center';
+                                modal.style.justifyContent = 'center';
+
+                                const modalContent = document.createElement('div');
+                                modalContent.style.background = '#fff';
+                                modalContent.style.borderRadius = '12px';
+                                modalContent.style.padding = '30px';
+                                modalContent.style.width = '95%';
+                                modalContent.style.maxWidth = '1400px';
+                                modalContent.style.height = '90vh';
+                                modalContent.style.maxHeight = '90vh';
+                                modalContent.style.overflowY = 'auto';
+                                modalContent.style.boxShadow = '0 10px 40px rgba(0,0,0,0.3)';
+
+                                const modalTitle = document.createElement('h3');
+                                modalTitle.textContent = '조각 선택';
+                                modalTitle.style.marginBottom = '20px';
+                                modalTitle.style.color = '#667eea';
+                                modalContent.appendChild(modalTitle);
+
+                                const piecesGrid = document.createElement('div');
+                                piecesGrid.style.display = 'grid';
+                                piecesGrid.style.gridTemplateColumns = 'repeat(auto-fill, minmax(140px, 1fr))';
+                                piecesGrid.style.gap = '16px';
+                                piecesGrid.style.maxHeight = 'calc(90vh - 150px)';
+                                piecesGrid.style.overflowY = 'auto';
+
+                                // 모든 조각 목록 추가
+                                const allPieces = Object.keys({ ...COMMON_PIECE_TEMPLATES, ...UNIQUE_PIECE_TEMPLATES });
+                                allPieces.forEach(pName => {
+                                    const templateData = COMMON_PIECE_TEMPLATES[pName] || UNIQUE_PIECE_TEMPLATES[pName];
+                                    if (!templateData) return;
+
+                                    const pieceCard = document.createElement('div');
+                                    pieceCard.style.padding = '12px';
+                                    pieceCard.style.border = '2px solid #ddd';
+                                    pieceCard.style.borderRadius = '8px';
+                                    pieceCard.style.cursor = 'pointer';
+                                    pieceCard.style.display = 'flex';
+                                    pieceCard.style.flexDirection = 'column';
+                                    pieceCard.style.alignItems = 'center';
+                                    pieceCard.style.gap = '8px';
+                                    pieceCard.style.background = '#fff';
+                                    pieceCard.style.transition = 'all 0.2s';
+                                    pieceCard.dataset.value = pName;
+
+                                    // 조각 미리보기
+                                    const tempPiece = {
+                                        shape: templateData.shape,
+                                        color: '#999999'
+                                    };
+                                    const preview = createPiecePreview(tempPiece);
+                                    preview.style.transform = 'scale(1.0)';
+                                    pieceCard.appendChild(preview);
+
+                                    // 호버 효과
+                                    pieceCard.addEventListener('mouseenter', () => {
+                                        pieceCard.style.borderColor = '#667eea';
+                                        pieceCard.style.background = '#f0f4ff';
+                                        pieceCard.style.transform = 'scale(1.05)';
+                                    });
+                                    pieceCard.addEventListener('mouseleave', () => {
+                                        pieceCard.style.borderColor = '#ddd';
+                                        pieceCard.style.background = '#fff';
+                                        pieceCard.style.transform = 'scale(1)';
+                                    });
+
+                                    // 클릭 시 선택
+                                    pieceCard.addEventListener('click', () => {
+                                        pieceBlock.dataset.selectedPiece = pName;
+                                        pieceBlock.dataset.selectedGrade = failedGrade;
+                                        pieceBlock.style.border = `2px solid ${gradeBorderColor}`;
+                                        
+                                        // 선택된 조각 표시
+                                        selectedDisplay.style.display = 'flex';
+                                        selectedDisplay.innerHTML = '';
+                                        const selectedPreview = createPiecePreview(tempPiece);
+                                        selectedPreview.style.transform = 'scale(0.6)';
+                                        selectedDisplay.appendChild(selectedPreview);
+                                        
+                                        // 수정 버튼 추가
+                                        const editButton = document.createElement('button');
+                                        editButton.textContent = '수정';
+                                        editButton.style.marginTop = '4px';
+                                        editButton.style.padding = '4px 12px';
+                                        editButton.style.fontSize = '0.7em';
+                                        editButton.style.border = '1px solid #667eea';
+                                        editButton.style.borderRadius = '4px';
+                                        editButton.style.background = '#667eea';
+                                        editButton.style.color = '#fff';
+                                        editButton.style.cursor = 'pointer';
+                                        editButton.style.fontWeight = 'bold';
+                                        editButton.addEventListener('click', () => {
+                                            selectButton.click(); // 모달 다시 열기
+                                        });
+                                        selectedDisplay.appendChild(editButton);
+                                        
+                                        // 버튼 숨기기
+                                        selectButton.style.display = 'none';
+                                        
+                                        // 모달 닫기
+                                        document.body.removeChild(modal);
+                                    });
+
+                                    piecesGrid.appendChild(pieceCard);
+                                    
+                                    // 기본값으로 선택된 조각이 있으면 하이라이트
+                                    if (defaultPieceName && pName === defaultPieceName) {
+                                        pieceCard.style.borderColor = '#667eea';
+                                        pieceCard.style.background = '#f0f4ff';
+                                        pieceCard.style.boxShadow = '0 0 10px rgba(102, 126, 234, 0.5)';
+                                    }
+                                });
+
+                                modalContent.appendChild(piecesGrid);
+
+                                // 닫기 버튼
+                                const closeBtn = document.createElement('button');
+                                closeBtn.textContent = '닫기';
+                                closeBtn.style.marginTop = '20px';
+                                closeBtn.style.padding = '10px 20px';
+                                closeBtn.style.border = 'none';
+                                closeBtn.style.borderRadius = '6px';
+                                closeBtn.style.background = '#ddd';
+                                closeBtn.style.cursor = 'pointer';
+                                closeBtn.style.fontWeight = 'bold';
+                                closeBtn.addEventListener('click', () => {
+                                    document.body.removeChild(modal);
+                                });
+                                modalContent.appendChild(closeBtn);
+
+                                modal.appendChild(modalContent);
+                                document.body.appendChild(modal);
+
+                                // 모달 배경 클릭 시 닫기
+                                modal.addEventListener('click', (e) => {
+                                    if (e.target === modal) {
+                                        document.body.removeChild(modal);
+                                    }
+                                });
+                            });
+
+                            pieceBlock.appendChild(selectButton);
+                            pieceBlock.appendChild(selectedDisplay);
+
+                            piecesList.appendChild(pieceBlock);
+                        });
+                        return;
+                    }
+
+                    // 정상 매칭된 조각 처리
+                    // 등급별 배경색 설정
+                    let gradeColor = '#ffffff';
+                    let gradeBorderColor = '#ddd';
+                    if (grade === 'rare') {
+                        gradeColor = 'rgba(100, 150, 255, 0.2)'; // 파란색 배경
+                        gradeBorderColor = 'rgba(100, 150, 255, 0.5)';
+                    } else if (grade === 'epic') {
+                        gradeColor = 'rgba(200, 100, 255, 0.2)'; // 보라색 배경
+                        gradeBorderColor = 'rgba(200, 100, 255, 0.5)';
+                    } else if (grade === 'super') {
+                        gradeColor = 'rgba(255, 100, 100, 0.2)'; // 빨간색 배경
+                        gradeBorderColor = 'rgba(255, 100, 100, 0.5)';
+                    }
+
+                    const pieceBlock = document.createElement('div');
+                    pieceBlock.style.marginBottom = '0';
+                    pieceBlock.style.padding = '8px';
+                    pieceBlock.style.background = gradeColor;
+                    pieceBlock.style.borderRadius = '6px';
+                    pieceBlock.style.border = `1px solid ${gradeBorderColor}`;
+                    pieceBlock.style.display = 'flex';
+                    pieceBlock.style.flexDirection = 'column';
+                    pieceBlock.style.alignItems = 'center';
+                    pieceBlock.style.gap = '6px';
+                    pieceBlock.style.width = 'calc(20% - 7px)'; // 한 줄에 5개 (gap 고려)
+                    pieceBlock.style.minWidth = '120px';
+                    pieceBlock.style.boxSizing = 'border-box';
 
                     // 조각 미리보기 생성 (템플릿 이름으로 조각 찾기)
                     const templateData = COMMON_PIECE_TEMPLATES[pieceName] || UNIQUE_PIECE_TEMPLATES[pieceName];
@@ -955,38 +1298,19 @@ document.addEventListener('DOMContentLoaded', () => {
                         };
                         const preview = createPiecePreview(tempPiece);
                         preview.style.flex = '0 0 auto';
+                        preview.style.transform = 'scale(0.7)'; // 미리보기 크기 축소
                         pieceBlock.appendChild(preview);
                     }
 
-                    // 조각 정보
-                    const pieceInfo = document.createElement('div');
-                    pieceInfo.style.flex = '1';
-
-                    const pieceTitleDiv = document.createElement('div');
-                    pieceTitleDiv.textContent = pieceName;
-                    pieceTitleDiv.style.fontWeight = 'bold';
-                    pieceTitleDiv.style.fontSize = '0.95em';
-                    pieceTitleDiv.style.marginBottom = '4px';
-                    pieceInfo.appendChild(pieceTitleDiv);
-
-                    const pieceDetailsDiv = document.createElement('div');
-                    pieceDetailsDiv.textContent = `등급: ${grade}`;
-                    pieceDetailsDiv.style.fontSize = '0.85em';
-                    pieceDetailsDiv.style.color = '#666';
-                    pieceInfo.appendChild(pieceDetailsDiv);
-
-                    pieceBlock.appendChild(pieceInfo);
-
-                    // 개수 표시 (오른쪽 큰 숫자)
+                    // 개수 표시
                     const countBadge = document.createElement('div');
                     countBadge.textContent = `×${count}`;
-                    countBadge.style.fontSize = '1.2em';
+                    countBadge.style.fontSize = '0.9em';
                     countBadge.style.fontWeight = 'bold';
                     countBadge.style.color = '#667eea';
-                    countBadge.style.padding = '8px 15px';
+                    countBadge.style.padding = '4px 8px';
                     countBadge.style.background = 'rgba(102, 126, 234, 0.1)';
-                    countBadge.style.borderRadius = '8px';
-                    countBadge.style.flex = '0 0 auto';
+                    countBadge.style.borderRadius = '4px';
                     pieceBlock.appendChild(countBadge);
 
                     piecesList.appendChild(pieceBlock);
@@ -1025,6 +1349,24 @@ document.addEventListener('DOMContentLoaded', () => {
             confirmBtn.style.color = 'white';
 
             confirmBtn.addEventListener('click', () => {
+                // 장착중 태그가 있는 조각이 있는지 확인
+                let hasGreenTagPieces = false;
+                imageSetSelectors.forEach((imageData) => {
+                    if (imageData.pieces.some(p => 
+                        p.pieceName === null && p.failedPieces && p.failedPieces.some(fp => fp.hasGreenTag)
+                    )) {
+                        hasGreenTagPieces = true;
+                    }
+                });
+                
+                // 장착중 태그가 있는 조각이 있으면 confirm으로 확인
+                if (hasGreenTagPieces) {
+                    const confirmed = confirm('⚠️ 장착중인 조각은 감지가 잘 안됩니다. 모든 조각을 확인하셨나요?');
+                    if (!confirmed) {
+                        return;
+                    }
+                }
+                
                 const results = [];
                 let allSelected = true;
 
@@ -1037,14 +1379,44 @@ document.addEventListener('DOMContentLoaded', () => {
                         imageData.selector.style.borderColor = '#f5576c';
                         imageData.selector.style.background = '#fff5f5';
                     } else {
+                        // 해당 탭의 piecesList 찾기
+                        const tabContent = tabContents.children[imageIndex];
+                        const piecesList = tabContent.querySelector('div[style*="flex-wrap"]');
+                        
                         // 이 사진의 모든 조각에 선택된 세트 적용
-                        imageData.pieces.forEach(piece => {
+                        imageData.pieces.forEach((piece, pieceIndex) => {
+                            // 매칭 실패한 조각 처리
+                            if (piece.pieceName === null && piece.failedPieces) {
+                                // 매칭 실패한 조각들 처리
+                                piece.failedPieces.forEach((failedPiece, failedIndex) => {
+                                    // piecesList에서 해당 조각 블록 찾기 (고유 식별자로)
+                                    const pieceBlock = piecesList.querySelector(
+                                        `div[data-image-index="${imageIndex}"][data-piece-index="${pieceIndex}"][data-failed-index="${failedIndex}"][data-is-failed="true"]`
+                                    );
+                                    
+                                    if (pieceBlock) {
+                                        const selectedPiece = pieceBlock.dataset.selectedPiece;
+                                        const selectedGrade = pieceBlock.dataset.selectedGrade || failedPiece.grade;
+                                        
+                                        if (selectedPiece) {
+                                            results.push({
+                                                basePieceName: selectedPiece,
+                                                selectedSet: selectedSet,
+                                                grade: selectedGrade,
+                                                count: 1
+                                            });
+                                        }
+                                    }
+                                });
+                            } else {
+                                // 정상 매칭된 조각
                             results.push({
                                 basePieceName: piece.pieceName,
                                 selectedSet: selectedSet,
                                 grade: piece.grade,
                                 count: piece.count
                             });
+                            }
                         });
                     }
                 });
@@ -2061,18 +2433,18 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         // RGB 기반 폴백 (HSV가 불확실한 경우)
-        // 에픽: 보라색 계열 (R과 B가 모두 높고 G가 낮음)
-        // 보라색 판단: R과 B가 비슷하게 높고, G는 낮음
+        // 먼저 레어 체크: B가 높고 R은 낮아야 함 (순수 파란색)
         const purpleRatio = (r + b) / (g + 1); // G가 0일 수 있으므로 +1
-        if (r > 60 && b > 60 && r > g * 1.2 && b > g * 1.2 && purpleRatio > 2.0) {
-            console.log('Detected: epic (purple RGB fallback)');
-            return 'epic';
-        }
-
-        // 레어: 파랑 계열 (B가 높고 R, G가 낮음, 보라색이 아님)
-        if (b > r + 20 && b > g + 20 && b > 80 && purpleRatio < 2.5) {
+        if (b > 100 && b > r + 30 && b > g + 25 && r < 100) {
             console.log('Detected: rare (blue RGB fallback)');
             return 'rare';
+        }
+
+        // 에픽: 보라색 계열 (R과 B가 모두 높고 비슷해야 함)
+        // 보라색 판단: R과 B가 비슷하게 높고, 차이가 크지 않아야 함
+        if (r > 80 && b > 120 && Math.abs(r - b) < 40 && (r + b) / 2 > g + 25 && purpleRatio > 2.0) {
+            console.log('Detected: epic (purple RGB fallback)');
+            return 'epic';
         }
 
         // 슈퍼에픽: 빨강 계열 (R이 높고 G, B가 낮음)
@@ -2364,6 +2736,7 @@ async function recognizePiecesWithCV(file) {
 
     // 4. 각 박스에서 조각 패턴 추출 및 매칭
     const pieceCounts = {}; // { pieceName-grade: count }
+    const failedPieces = []; // 매칭 실패한 조각들
 
     for (let i = 0; i < boxes.length; i++) {
         const box = boxes[i];
@@ -2372,7 +2745,7 @@ async function recognizePiecesWithCV(file) {
         const { grade, bgColor } = detectGradeFromBox(src, box);
 
         // 그리드 분석으로 조각 모양 추출 + 디버그용 캔버스 생성
-        const { shape: extractedShape, debug } = extractShapeFromImageWithDebug(src, box, bgColor, i, grade);
+        const { shape: extractedShape, hasGreenTag, debug } = extractShapeFromImageWithDebug(src, box, bgColor, i, grade);
 
         // 추출한 모양으로 조각 이름 찾기 (템플릿 매칭)
         const pieceName = findPieceNameByShape(extractedShape);
@@ -2382,7 +2755,28 @@ async function recognizePiecesWithCV(file) {
         debug.info += `\n추출된 shape: ${JSON.stringify(extractedShape)}`;
         debugData.push(debug);
 
-        if (pieceName) {
+        // 매칭 실패한 조각 또는 장착중 태그가 있는 조각은 failedPieces에 추가
+        if (!pieceName) {
+            // 매칭 실패한 조각
+            failedPieces.push({
+                grade: grade,
+                debug: debug,
+                box: box,
+                shape: extractedShape,
+                hasGreenTag: hasGreenTag || false
+            });
+        } else if (hasGreenTag) {
+            // 장착중 태그가 있는 조각은 확인 필요 목록에만 추가 (정상 인식 목록에는 포함하지 않음)
+            failedPieces.push({
+                grade: grade,
+                debug: debug,
+                box: box,
+                shape: extractedShape,
+                hasGreenTag: true,
+                pieceName: pieceName // 기본값으로 선택된 조각 이름
+            });
+        } else {
+            // 정상 인식된 조각만 pieceCounts에 추가
             const key = `${pieceName}-${grade}`;
             pieceCounts[key] = (pieceCounts[key] || 0) + 1;
         }
@@ -2401,11 +2795,21 @@ async function recognizePiecesWithCV(file) {
             count: count
         });
     }
+    
+    // 매칭 실패한 조각들도 결과에 포함
+    if (failedPieces.length > 0) {
+        result.push({
+            pieceName: null, // 매칭 실패 표시
+            grade: null,
+            count: failedPieces.length,
+            failedPieces: failedPieces // 원본 이미지 정보 포함
+        });
+    }
 
     // ===== 디버그 모달 표시 =====
     // 각 조각의 처리 과정을 시각화한 모달 창 표시
     // (원본 이미지, 배경 제거된 이미지, 그리드 분석 결과)
-    // showDebugModal(debugData); // 디버그 모달 비활성화
+    showDebugModal(debugData); // 디버그 모달 비활성화
 
     // 6. 메모리 정리
     src.delete();
@@ -2455,34 +2859,6 @@ function detectPieceBoxes(src, gray, img) {
     cv.threshold(maskedGray, binary, 128, 255, cv.THRESH_BINARY);
 
     maskedGray.delete();
-
-    // ===== 2.5단계: 이진화 후 상단 흰색 라인 제거 (50% 이상 흰색인 라인만) =====
-    const scanTopLines = 10; // 상단 10픽셀까지 스캔
-    const whiteThreshold = 128; // 흰색 판정 기준
-    const whiteRatioThreshold = 0.5; // 50% 이상
-
-    for (let y = 0; y < Math.min(scanTopLines, binary.rows); y++) {
-        let whitePixelCount = 0;
-
-        // 현재 라인의 흰색 픽셀 개수 세기
-        for (let x = 0; x < binary.cols; x++) {
-            if (binary.ucharPtr(y, x)[0] > whiteThreshold) {
-                whitePixelCount++;
-            }
-        }
-
-        // 흰색 비율 계산
-        const whiteRatio = whitePixelCount / binary.cols;
-
-        // 50% 이상이면 왼쪽 25%만 검은색으로 칠함
-        if (whiteRatio >= whiteRatioThreshold) {
-            const paintWidth = Math.floor(binary.cols * 0.25); // 왼쪽 25%
-            for (let x = 0; x < paintWidth; x++) {
-                binary.ucharPtr(y, x)[0] = 0; // 검은색으로 칠함
-            }
-            console.log(`이진화 후 라인 ${y}: 흰색 비율 ${(whiteRatio * 100).toFixed(1)}% → 왼쪽 25% 제거`);
-        }
-    }
 
     // ===== 3단계: 윤곽선 검출 =====
     const contours = new cv.MatVector();
@@ -2719,18 +3095,21 @@ function detectGradeFromBox(src, box) {
     }
 
     // 색상 기반 등급 판별
-    // 레어: 파란색 (B가 가장 높음)
-    // 에픽: 보라색 (R과 B가 모두 높음)
+    // 레어: 파란색 (B가 높고 R은 낮음)
+    // 에픽: 보라색 (R과 B가 모두 높고 비슷함)
     // 슈퍼: 빨간색/노란색 (R이 매우 높음)
 
     let grade;
-    // 보라색 (epic): R과 B가 모두 높음
-    if (r > 150 && b > 200 && b > r) {
-        grade = 'epic';
-    }
-    // 파란색 (rare): B가 가장 높음
-    else if (b > r + 30 && b > g + 20) {
+    
+    // 먼저 레어(파란색) 체크: B가 높고 R은 낮아야 함
+    // 레어는 순수 파란색이므로 B가 R보다 훨씬 높고, R은 낮아야 함
+    if (b > 150 && b > r + 40 && b > g + 30 && r < 120) {
         grade = 'rare';
+    }
+    // 보라색 (epic): R과 B가 모두 높고 비슷해야 함 (보라색 특성)
+    // 보라색은 빨강과 파랑이 섞인 색이므로 R과 B가 모두 높고 차이가 크지 않아야 함
+    else if (r > 100 && b > 150 && Math.abs(r - b) < 50 && (r + b) / 2 > g + 30) {
+        grade = 'epic';
     }
     // 빨간색/분홍색 (super): R이 매우 높음
     else if (r > 200 && r > b + 30) {
@@ -2739,6 +3118,10 @@ function detectGradeFromBox(src, box) {
     // 노란색 (super): R과 G가 높음
     else if (r > 150 && g > 150 && b < 100) {
         grade = 'super';
+    }
+    // 기본값: B가 높으면 레어, 아니면 레어로 기본 설정
+    else if (b > r && b > g) {
+        grade = 'rare';
     }
     else {
         grade = 'rare';
@@ -2964,8 +3347,10 @@ function detectGreenTagOffsetFromMat(mat) {
 
     // 녹색 태그가 있으면 해당 줄 + 패딩 제거 (회색 테두리 + 흰색 텍스트 잔여물)
     if (firstNonGreenRow > 0) {
-        const safePadding = Math.min(4, Math.floor(mat.rows * 0.05)); // 최대 4px 또는 높이의 5%
-        return Math.min(firstNonGreenRow + safePadding, mat.rows);
+        const safePadding = Math.min(2, Math.floor(mat.rows * 0.03)); // 최대 2px 또는 높이의 3% (덜 자르기)
+        const offset = firstNonGreenRow + safePadding;
+        // 80%만 자르기 (덜 자르기)
+        return Math.min(Math.floor(offset * 0.8), mat.rows);
     }
 
     return 0;
@@ -3033,6 +3418,7 @@ function extractShapeFromImageWithDebug(src, box, bgColor, index, grade) {
 
     return {
         shape,
+        hasGreenTag,             // 장착중 태그 여부
         debug: {
             originalCanvas,      // 원본
             processedCanvas,     // 배경 제거
@@ -3165,31 +3551,21 @@ function extractShapeFromRoiWithDebug(iconRoi, bgColor, index, hasGreenTag = fal
     colorMask.delete();
     gray.delete();
 
-    // ===== 4단계: 상단 영역의 흰색 라인 제거 (50% 이상 흰색인 라인만) =====
-    const scanTopLines = 10; // 상단 10픽셀까지 스캔
-    const whiteThreshold = 128; // 흰색 판정 기준
-    const whiteRatioThreshold = 0.5; // 50% 이상
+    // ===== 4단계: 상단 흰색 라인 제거 =====
+    const removeTopLines = 3; // 상단 3픽셀 처리
 
-    for (let y = 0; y < Math.min(scanTopLines, iconH); y++) {
-        let whitePixelCount = 0;
-
-        // 현재 라인의 흰색 픽셀 개수 세기
+    if (iconH > 0) {
+        const paintEndLine = Math.min(removeTopLines - 1, iconH - 1);
+        
+        // 상단 3픽셀 처리: 1,2픽셀은 검정, 3픽셀은 회색
+        for (let y = 0; y <= paintEndLine; y++) {
         for (let x = 0; x < iconW; x++) {
-            if (binary.ucharPtr(y, x)[0] > whiteThreshold) {
-                whitePixelCount++;
+                if (y === 0 || y === 1) {
+                    binary.ucharPtr(y, x)[0] = 0; // 1,2픽셀: 검정
+                } else if (y === 2) {
+                    binary.ucharPtr(y, x)[0] = 128; // 3픽셀: 회색
+                }
             }
-        }
-
-        // 흰색 비율 계산
-        const whiteRatio = whitePixelCount / iconW;
-
-        // 50% 이상이면 왼쪽 25%만 검은색으로 칠함
-        if (whiteRatio >= whiteRatioThreshold) {
-            const paintWidth = Math.floor(iconW * 0.25); // 왼쪽 25%
-            for (let x = 0; x < paintWidth; x++) {
-                binary.ucharPtr(y, x)[0] = 0; // 검은색으로 칠함
-            }
-            console.log(`[디버그 #${index}] 라인 ${y}: 흰색 비율 ${(whiteRatio * 100).toFixed(1)}% → 왼쪽 25% 제거`);
         }
     }
 
@@ -3286,6 +3662,11 @@ function extractShapeFromRoiWithDebug(iconRoi, bgColor, index, hasGreenTag = fal
     const finalKernel = cv.getStructuringElement(cv.MORPH_RECT, new cv.Size(3, 3));
     cv.morphologyEx(binary, binary, cv.MORPH_OPEN, finalKernel);  // 작은 돌기 제거
     finalKernel.delete();
+    
+    // ===== 5-4단계: 테두리 약간 깎기 (침식 연산) =====
+    const erodeKernel = cv.getStructuringElement(cv.MORPH_RECT, new cv.Size(5, 5));
+    cv.erode(binary, binary, erodeKernel);  // 테두리를 약간 안쪽으로 축소
+    erodeKernel.delete();
 
     // ===== 6단계: 조각의 bounding box 찾기 =====
     let minX = iconW, maxX = 0, minY = iconH, maxY = 0, totalFilled = 0;
@@ -4495,3 +4876,4 @@ function findPieceNameByShape(extractedShape) {
     createGrid();
     createPiecePalette();
 });
+
