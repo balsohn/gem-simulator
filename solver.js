@@ -1293,34 +1293,90 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    // "장착중" 녹색 태그 영역 감지
+    function detectGreenTagOffset(imageData) {
+        const { data, width, height } = imageData;
+        const greenColor = { r: 82, g: 206, b: 50 }; // #52CE32
+        const threshold = 35;
+
+        // 상단부터 스캔 (최대 40% 높이까지만)
+        const maxScanHeight = Math.floor(height * 0.4);
+
+        // 각 행(row)별로 녹색 픽셀 비율 계산
+        for (let y = 0; y < maxScanHeight; y++) {
+            let greenPixelCount = 0;
+
+            for (let x = 0; x < width; x++) {
+                const i = (y * width + x) * 4;
+                const r = data[i];
+                const g = data[i + 1];
+                const b = data[i + 2];
+
+                const diff = Math.sqrt(
+                    Math.pow(r - greenColor.r, 2) +
+                    Math.pow(g - greenColor.g, 2) +
+                    Math.pow(b - greenColor.b, 2)
+                );
+
+                if (diff <= threshold) {
+                    greenPixelCount++;
+                }
+            }
+
+            // 녹색 픽셀 비율 계산
+            const greenRatio = greenPixelCount / width;
+
+            // 녹색 픽셀이 40% 이하로 떨어지면 태그 영역 끝
+            if (greenRatio < 0.4) {
+                console.log(`"장착중" 태그 감지: ${y}px 높이, 녹색 비율: ${(greenRatio * 100).toFixed(1)}%`);
+                return y; // 이 Y 좌표부터 조각 시작
+            }
+        }
+
+        return 0; // 녹색 태그 없음
+    }
+
     function analyzePieceSection(canvas, ctx, x, y, width, height, baseUnitSize = null) {
-        // Extract pixel data from section
-        const imageData = ctx.getImageData(x, y, width, height);
+        // 먼저 전체 영역에서 "장착중" 녹색 태그 offset 감지
+        const fullImageData = ctx.getImageData(x, y, width, height);
+        const greenOffset = detectGreenTagOffset(fullImageData);
+
+        // greenOffset만큼 아래에서부터 분석 시작
+        const adjustedY = y + greenOffset;
+        const adjustedHeight = height - greenOffset;
+
+        if (adjustedHeight <= 10) {
+            console.log('녹색 태그 제거 후 남은 영역이 너무 작음');
+            return { pieceName: null, grade: 'rare' };
+        }
+
+        // Extract pixel data from adjusted section
+        const imageData = ctx.getImageData(x, adjustedY, width, adjustedHeight);
 
         // Determine grade from background color
         const grade = detectGradeFromBackground(imageData);
 
         // 조각 아이콘 찾기: 중앙 영역만 스캔 (성능 최적화)
-        const iconSize = Math.min(100, Math.min(width, height) * 0.6);
+        const iconSize = Math.min(100, Math.min(width, adjustedHeight) * 0.6);
         const centerX = Math.floor(width * 0.5);
-        const centerY = Math.floor(height * 0.5);
+        const centerY = Math.floor(adjustedHeight * 0.5);
         const iconX = Math.max(0, centerX - iconSize / 2);
         const iconY = Math.max(0, centerY - iconSize / 2);
-        
+
         let bestIcon = null;
-        
+
         try {
-            const iconImageData = ctx.getImageData(x + iconX, y + iconY, iconSize, iconSize);
+            const iconImageData = ctx.getImageData(x + iconX, adjustedY + iconY, iconSize, iconSize);
             const iconInfo = detectPieceShapeInSection(iconImageData, true, false, baseUnitSize);
             bestIcon = iconInfo ? iconInfo.pieceName : null;
         } catch (e) {
             // 영역이 범위를 벗어난 경우 무시
         }
-        
+
         // 조각 아이콘을 찾지 못한 경우, 전체 영역에서 다시 시도
         if (!bestIcon) {
             try {
-                const iconImageData = ctx.getImageData(x, y, width, height);
+                const iconImageData = ctx.getImageData(x, adjustedY, width, adjustedHeight);
                 const iconInfo = detectPieceShapeInSection(iconImageData, false, false, baseUnitSize);
                 bestIcon = iconInfo ? iconInfo.pieceName : null;
             } catch (e) {
@@ -1328,7 +1384,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
 
-        console.log(`Section analysis: grade=${grade}, piece=${bestIcon}`);
+        console.log(`Section analysis: greenOffset=${greenOffset}px, grade=${grade}, piece=${bestIcon}`);
 
         return { pieceName: bestIcon, grade };
     }
@@ -1440,9 +1496,15 @@ document.addEventListener('DOMContentLoaded', () => {
         const [bgR, bgG, bgB] = bgColor ? bgColor.split(',').map(Number) : [0, 0, 0];
         const bgThreshold = isSmallRegion ? 25 : 40; // 작은 영역일 때는 더 낮은 임계값
 
+        // 제거할 특정 색상 정의 (#52CE32 - 녹색)
+        const colorsToRemove = [
+            { r: 82, g: 206, b: 50 }  // #52CE32
+        ];
+        const colorRemoveThreshold = 35; // 오차범위
+
         const coloredPixels = [];
 
-        // 배경색과 다른 픽셀 찾기 (조각 아이콘)
+        // 배경색과 특정 색상들을 모두 제거
         for (let y = 0; y < height; y++) {
             for (let x = 0; x < width; x++) {
                 const i = (y * width + x) * 4;
@@ -1452,14 +1514,28 @@ document.addEventListener('DOMContentLoaded', () => {
                 const a = data[i + 3];
 
                 // 배경색과의 차이 계산 (유클리드 거리 사용)
-                const colorDiff = Math.sqrt(
-                    Math.pow(r - bgR, 2) + 
-                    Math.pow(g - bgG, 2) + 
+                const bgDiff = Math.sqrt(
+                    Math.pow(r - bgR, 2) +
+                    Math.pow(g - bgG, 2) +
                     Math.pow(b - bgB, 2)
                 );
 
-                // 배경색과 충분히 다르고, 투명도가 충분한 픽셀
-                if (a > 200 && colorDiff > bgThreshold) {
+                // 특정 색상들과의 차이 계산
+                let isSpecialColor = false;
+                for (const color of colorsToRemove) {
+                    const specialDiff = Math.sqrt(
+                        Math.pow(r - color.r, 2) +
+                        Math.pow(g - color.g, 2) +
+                        Math.pow(b - color.b, 2)
+                    );
+                    if (specialDiff <= colorRemoveThreshold) {
+                        isSpecialColor = true;
+                        break;
+                    }
+                }
+
+                // 배경색도 아니고, 특정 제거 색상도 아니며, 투명도가 충분한 픽셀만 추출
+                if (a > 200 && bgDiff > bgThreshold && !isSpecialColor) {
                     coloredPixels.push({ x, y, r, g, b });
                 }
             }
@@ -2326,10 +2402,10 @@ async function recognizePiecesWithCV(file) {
         });
     }
 
-    // ===== 디버그 모달 표시 비활성화 (GitHub Pages 배포용) =====
+    // ===== 디버그 모달 표시 =====
     // 각 조각의 처리 과정을 시각화한 모달 창 표시
     // (원본 이미지, 배경 제거된 이미지, 그리드 분석 결과)
-    // showDebugModal(debugData);
+    showDebugModal(debugData);
 
     // 6. 메모리 정리
     src.delete();
@@ -2341,11 +2417,74 @@ async function recognizePiecesWithCV(file) {
 
 // 조각 박스 감지
 function detectPieceBoxes(src, gray, img) {
-    // 이진화
-    const binary = new cv.Mat();
-    cv.threshold(gray, binary, 128, 255, cv.THRESH_BINARY);
+    // ===== 1단계: 녹색 "장착중" 태그 영역 마스킹 =====
+    const greenLower = new cv.Mat(src.rows, src.cols, src.type(),
+        [Math.max(0, 82 - 35), Math.max(0, 206 - 35), Math.max(0, 50 - 35), 0]);
+    const greenUpper = new cv.Mat(src.rows, src.cols, src.type(),
+        [Math.min(255, 82 + 35), Math.min(255, 206 + 35), Math.min(255, 50 + 35), 255]);
 
-    // 윤곽선 검출
+    const greenMask = new cv.Mat();
+    cv.inRange(src, greenLower, greenUpper, greenMask);
+
+    greenLower.delete();
+    greenUpper.delete();
+
+    // 녹색 마스크 팽창 (외곽선까지 포함하도록)
+    const kernel = cv.getStructuringElement(cv.MORPH_RECT, new cv.Size(3, 20)); // 세로로 10픽셀 팽창
+    const expandedGreenMask = new cv.Mat();
+    cv.dilate(greenMask, expandedGreenMask, kernel);
+    kernel.delete();
+    greenMask.delete();
+
+    // 팽창된 녹색 영역을 그레이스케일에서 검은색으로 칠하기
+    const maskedGray = gray.clone();
+    for (let y = 0; y < expandedGreenMask.rows; y++) {
+        for (let x = 0; x < expandedGreenMask.cols; x++) {
+            if (expandedGreenMask.ucharPtr(y, x)[0] > 128) {
+                maskedGray.ucharPtr(y, x)[0] = 0; // 검은색 (녹색 영역 + 외곽선 제거)
+            }
+        }
+    }
+
+    expandedGreenMask.delete();
+
+    console.log('녹색 "장착중" 태그 영역 제거 완료');
+
+    // ===== 2단계: 이진화 (녹색 제거된 이미지로) =====
+    const binary = new cv.Mat();
+    cv.threshold(maskedGray, binary, 128, 255, cv.THRESH_BINARY);
+
+    maskedGray.delete();
+
+    // ===== 2.5단계: 이진화 후 상단 흰색 라인 제거 (50% 이상 흰색인 라인만) =====
+    const scanTopLines = 10; // 상단 10픽셀까지 스캔
+    const whiteThreshold = 128; // 흰색 판정 기준
+    const whiteRatioThreshold = 0.5; // 50% 이상
+
+    for (let y = 0; y < Math.min(scanTopLines, binary.rows); y++) {
+        let whitePixelCount = 0;
+
+        // 현재 라인의 흰색 픽셀 개수 세기
+        for (let x = 0; x < binary.cols; x++) {
+            if (binary.ucharPtr(y, x)[0] > whiteThreshold) {
+                whitePixelCount++;
+            }
+        }
+
+        // 흰색 비율 계산
+        const whiteRatio = whitePixelCount / binary.cols;
+
+        // 50% 이상이면 왼쪽 25%만 검은색으로 칠함
+        if (whiteRatio >= whiteRatioThreshold) {
+            const paintWidth = Math.floor(binary.cols * 0.25); // 왼쪽 25%
+            for (let x = 0; x < paintWidth; x++) {
+                binary.ucharPtr(y, x)[0] = 0; // 검은색으로 칠함
+            }
+            console.log(`이진화 후 라인 ${y}: 흰색 비율 ${(whiteRatio * 100).toFixed(1)}% → 왼쪽 25% 제거`);
+        }
+    }
+
+    // ===== 3단계: 윤곽선 검출 =====
     const contours = new cv.MatVector();
     const hierarchy = new cv.Mat();
     cv.findContours(binary, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
@@ -2413,20 +2552,171 @@ function detectPieceBoxes(src, gray, img) {
 
 // 배경색으로 등급 판별 (배경색도 반환)
 function detectGradeFromBox(src, box) {
-    // 박스의 상단 영역에서 배경색 샘플링 ("장착중" 태그 아래 영역 사용)
-    const sampleHeight = Math.floor(box.height * 0.1);
-    const sampleY = box.y + Math.floor(box.height * 0.20); // 상단 20% 아래에서 샘플링 (태그 회피)
+    // 먼저 상단에 녹색 "장착중" 태그가 있는지 확인
+    const topSampleHeight = Math.floor(box.height * 0.2);
+    const topRoi = src.roi(new cv.Rect(box.x + 5, box.y + 5, box.width - 10, topSampleHeight));
+    const topMean = cv.mean(topRoi);
+    topRoi.delete();
 
-    // ROI 추출
-    const roi = src.roi(new cv.Rect(box.x + 5, sampleY, box.width - 10, sampleHeight));
+    const isGreenTag = (
+        Math.abs(topMean[0] - 82) < 40 &&   // R: 82 ±40
+        Math.abs(topMean[1] - 206) < 40 &&  // G: 206 ±40
+        Math.abs(topMean[2] - 50) < 40      // B: 50 ±40
+    );
 
-    // 평균 색상 계산
-    const mean = cv.mean(roi);
-    roi.delete();
+    let r, g, b;
 
-    const r = mean[0];
-    const g = mean[1];
-    const b = mean[2];
+    if (isGreenTag) {
+        // 녹색 태그가 있으면 하단 좌우 모서리에서 배경색 샘플링
+        console.log(`박스 (${box.x},${box.y}): 녹색 태그 감지, 하단 모서리에서 배경색 샘플링`);
+
+        const cornerSize = 5; // 5x5 픽셀 영역
+
+        // 좌하단 모서리
+        const bottomLeft = src.roi(new cv.Rect(
+            box.x + 3,
+            box.y + box.height - cornerSize - 3,
+            cornerSize,
+            cornerSize
+        ));
+        const blMean = cv.mean(bottomLeft);
+        bottomLeft.delete();
+
+        // 우하단 모서리
+        const bottomRight = src.roi(new cv.Rect(
+            box.x + box.width - cornerSize - 3,
+            box.y + box.height - cornerSize - 3,
+            cornerSize,
+            cornerSize
+        ));
+        const brMean = cv.mean(bottomRight);
+        bottomRight.delete();
+
+        // 하단 좌우 모서리 평균
+        r = (blMean[0] + brMean[0]) / 2;
+        g = (blMean[1] + brMean[1]) / 2;
+        b = (blMean[2] + brMean[2]) / 2;
+
+        console.log(`  좌하단 배경색: R=${blMean[0].toFixed(1)}, G=${blMean[1].toFixed(1)}, B=${blMean[2].toFixed(1)}`);
+        console.log(`  우하단 배경색: R=${brMean[0].toFixed(1)}, G=${brMean[1].toFixed(1)}, B=${brMean[2].toFixed(1)}`);
+        console.log(`  평균 배경색: R=${r.toFixed(1)}, G=${g.toFixed(1)}, B=${b.toFixed(1)}`);
+    } else {
+        // 태그가 없다고 판단되었지만, 개별 모서리에 녹색이 있을 수 있으므로 필터링
+        const cornerSize = 5; // 5x5 픽셀 영역
+
+        // 좌상단 모서리
+        const topLeft = src.roi(new cv.Rect(box.x + 3, box.y + 3, cornerSize, cornerSize));
+        const tlMean = cv.mean(topLeft);
+        topLeft.delete();
+
+        // 우상단 모서리
+        const topRight = src.roi(new cv.Rect(
+            box.x + box.width - cornerSize - 3,
+            box.y + 3,
+            cornerSize,
+            cornerSize
+        ));
+        const trMean = cv.mean(topRight);
+        topRight.delete();
+
+        // 좌하단 모서리
+        const bottomLeft = src.roi(new cv.Rect(
+            box.x + 3,
+            box.y + box.height - cornerSize - 3,
+            cornerSize,
+            cornerSize
+        ));
+        const blMean = cv.mean(bottomLeft);
+        bottomLeft.delete();
+
+        // 우하단 모서리
+        const bottomRight = src.roi(new cv.Rect(
+            box.x + box.width - cornerSize - 3,
+            box.y + box.height - cornerSize - 3,
+            cornerSize,
+            cornerSize
+        ));
+        const brMean = cv.mean(bottomRight);
+        bottomRight.delete();
+
+        // 네 모서리를 배열로 구성
+        const corners = [
+            { name: '좌상단', mean: tlMean },
+            { name: '우상단', mean: trMean },
+            { name: '좌하단', mean: blMean },
+            { name: '우하단', mean: brMean }
+        ];
+
+        // 녹색 태그 색상 제거 (#52CE32)
+        const greenColor = { r: 82, g: 206, b: 50 };
+        const greenThreshold = 50;
+
+        const validCorners = corners.filter(corner => {
+            const diff = Math.sqrt(
+                Math.pow(corner.mean[0] - greenColor.r, 2) +
+                Math.pow(corner.mean[1] - greenColor.g, 2) +
+                Math.pow(corner.mean[2] - greenColor.b, 2)
+            );
+            const isGreen = diff <= greenThreshold;
+            if (isGreen) {
+                console.log(`  ${corner.name} 녹색 태그 감지됨, 제외: R=${corner.mean[0].toFixed(1)}, G=${corner.mean[1].toFixed(1)}, B=${corner.mean[2].toFixed(1)}`);
+            }
+            return !isGreen; // 녹색이 아닌 모서리만
+        });
+
+        // 배경색은 보통 밝은 색이므로, 충분히 밝은 모서리만 선택
+        const brightnessThreshold = 120; // 평균 밝기 임계값
+        const brightCorners = validCorners.filter(corner => {
+            const r = corner.mean[0];
+            const g = corner.mean[1];
+            const b = corner.mean[2];
+            const brightness = (r + g + b) / 3;
+            const isBright = brightness >= brightnessThreshold;
+
+            // 녹색 계열 체크 (흰색 텍스트가 섞인 녹색 태그 영역도 제외)
+            // G 값이 R, B보다 20 이상 높으면 녹색 계열로 간주
+            const isGreenish = (g > r + 20 && g > b + 20);
+
+            if (!isBright) {
+                console.log(`  ${corner.name} 너무 어두움, 제외: R=${r.toFixed(1)}, G=${g.toFixed(1)}, B=${b.toFixed(1)} (밝기=${brightness.toFixed(1)})`);
+            } else if (isGreenish) {
+                console.log(`  ${corner.name} 녹색 계열, 제외: R=${r.toFixed(1)}, G=${g.toFixed(1)}, B=${b.toFixed(1)}`);
+            }
+
+            return isBright && !isGreenish;
+        });
+
+        console.log(`박스 (${box.x},${box.y}): 네 모서리 샘플링 → ${validCorners.length}개 유효 → ${brightCorners.length}개 밝음`);
+
+        if (brightCorners.length >= 2) {
+            // 밝은 모서리가 2개 이상이면 그것들의 평균 사용
+            r = brightCorners.reduce((sum, c) => sum + c.mean[0], 0) / brightCorners.length;
+            g = brightCorners.reduce((sum, c) => sum + c.mean[1], 0) / brightCorners.length;
+            b = brightCorners.reduce((sum, c) => sum + c.mean[2], 0) / brightCorners.length;
+
+            brightCorners.forEach(corner => {
+                console.log(`  ${corner.name} (사용): R=${corner.mean[0].toFixed(1)}, G=${corner.mean[1].toFixed(1)}, B=${corner.mean[2].toFixed(1)}`);
+            });
+        } else if (validCorners.length >= 2) {
+            // 밝은 모서리가 부족하면 유효한 모서리 전체 사용
+            console.log(`  ⚠️ 밝은 모서리 부족, 유효한 모서리 전체 사용`);
+            r = validCorners.reduce((sum, c) => sum + c.mean[0], 0) / validCorners.length;
+            g = validCorners.reduce((sum, c) => sum + c.mean[1], 0) / validCorners.length;
+            b = validCorners.reduce((sum, c) => sum + c.mean[2], 0) / validCorners.length;
+
+            validCorners.forEach(corner => {
+                console.log(`  ${corner.name} (사용): R=${corner.mean[0].toFixed(1)}, G=${corner.mean[1].toFixed(1)}, B=${corner.mean[2].toFixed(1)}`);
+            });
+        } else {
+            // 유효한 모서리가 부족하면 하단 모서리만 사용
+            console.log(`  ⚠️ 유효한 모서리 부족, 하단 모서리만 사용`);
+            r = (blMean[0] + brMean[0]) / 2;
+            g = (blMean[1] + brMean[1]) / 2;
+            b = (blMean[2] + brMean[2]) / 2;
+        }
+
+        console.log(`  최종 배경색: R=${r.toFixed(1)}, G=${g.toFixed(1)}, B=${b.toFixed(1)}`);
+    }
 
     // 색상 기반 등급 판별
     // 레어: 파란색 (B가 가장 높음)
@@ -2616,11 +2906,11 @@ function hammingDistance(hash1, hash2) {
 
 // 조각 이미지에서 그리드 패턴 추출 (1x1 칸 단위로 분석, 배경색 기반)
 function extractShapeFromImage(src, box, bgColor, index) {
-    // 상단 여백을 크게 하여 "장착중" 태그 제외
-    const marginLeft = 0.15;
-    const marginRight = 0.15;
-    const marginTop = 0.28;    // 상단 28% 제외 (장착중 태그 대응)
-    const marginBottom = 0.15;
+    // 고정 여백 사용 (간단하고 안정적)
+    const marginLeft = 0.08;
+    const marginRight = 0.08;
+    const marginTop = 0.08;  // 작은 여백만 (태그 없는 이미지 대응)
+    const marginBottom = 0.08;
 
     const iconX = box.x + Math.floor(box.width * marginLeft);
     const iconY = box.y + Math.floor(box.height * marginTop);
@@ -2635,28 +2925,93 @@ function extractShapeFromImage(src, box, bgColor, index) {
 }
 
 // 디버그 버전: 처리 과정 시각화
+// OpenCV Mat에서 녹색 태그 offset 감지 (cv.Mat 버전)
+function detectGreenTagOffsetFromMat(mat) {
+    const greenColor = { r: 82, g: 206, b: 50 }; // #52CE32
+    const threshold = 35;
+    const maxScanHeight = Math.floor(mat.rows * 0.4);
+
+    let firstNonGreenRow = 0;
+
+    for (let y = 0; y < maxScanHeight; y++) {
+        let greenPixelCount = 0;
+
+        for (let x = 0; x < mat.cols; x++) {
+            const pixel = mat.ucharPtr(y, x);
+            const r = pixel[0];
+            const g = pixel[1];
+            const b = pixel[2];
+
+            const diff = Math.sqrt(
+                Math.pow(r - greenColor.r, 2) +
+                Math.pow(g - greenColor.g, 2) +
+                Math.pow(b - greenColor.b, 2)
+            );
+
+            if (diff <= threshold) {
+                greenPixelCount++;
+            }
+        }
+
+        const greenRatio = greenPixelCount / mat.cols;
+
+        // 녹색이 5% 미만인 첫 줄 찾기
+        if (greenRatio < 0.05) {
+            firstNonGreenRow = y;
+            break;
+        }
+    }
+
+    // 녹색 태그가 있으면 해당 줄 + 패딩 제거 (회색 테두리 + 흰색 텍스트 잔여물)
+    if (firstNonGreenRow > 0) {
+        const safePadding = Math.min(4, Math.floor(mat.rows * 0.05)); // 최대 4px 또는 높이의 5%
+        return Math.min(firstNonGreenRow + safePadding, mat.rows);
+    }
+
+    return 0;
+}
+
 // ===== 디버그용 조각 추출 함수 =====
 // 조각 모양 추출 + 시각화를 위한 캔버스 3개 생성
 function extractShapeFromImageWithDebug(src, box, bgColor, index, grade) {
-    // 원본 이미지에서 조각 영역만 추출 (여백 제거)
-    // 상단 여백을 크게 하여 "장착중" 태그 제외
-    const marginLeft = 0.15;
-    const marginRight = 0.15;
-    const marginTop = 0.28;    // 상단 28% 제외 (장착중 태그 대응)
-    const marginBottom = 0.15;
+    // 원본 이미지에서 조각 영역만 추출 (여백 8% 제거)
+    const marginLeft = 0.08, marginRight = 0.08, marginTop = 0.08, marginBottom = 0.08;
     const iconX = box.x + Math.floor(box.width * marginLeft);
     const iconY = box.y + Math.floor(box.height * marginTop);
     const iconW = Math.floor(box.width * (1 - marginLeft - marginRight));
     const iconH = Math.floor(box.height * (1 - marginTop - marginBottom));
 
-    const iconRoi = src.roi(new cv.Rect(iconX, iconY, iconW, iconH));
+    let iconRoi = src.roi(new cv.Rect(iconX, iconY, iconW, iconH));
 
-    // 1. 디버그 캔버스 1: 원본 이미지
+    // ===== "장착중" 녹색 태그 감지 및 제거 =====
+    const greenOffset = detectGreenTagOffsetFromMat(iconRoi);
+
+    if (greenOffset > 0) {
+        console.log(`[디버그 #${index}] "장착중" 태그 감지: ${greenOffset}px 제거`);
+
+        // 원본 ROI 삭제
+        iconRoi.delete();
+
+        // 녹색 태그 제거한 새로운 ROI 생성
+        const adjustedY = iconY + greenOffset;
+        const adjustedH = iconH - greenOffset;
+
+        if (adjustedH > 10) {
+            iconRoi = src.roi(new cv.Rect(iconX, adjustedY, iconW, adjustedH));
+        } else {
+            // 녹색 태그 제거 후 영역이 너무 작으면 원본 사용
+            console.log(`[디버그 #${index}] 태그 제거 후 영역 너무 작음, 원본 사용`);
+            iconRoi = src.roi(new cv.Rect(iconX, iconY, iconW, iconH));
+        }
+    }
+
+    // 1. 디버그 캔버스 1: 원본 이미지 (녹색 태그 제거 후)
     const originalCanvas = document.createElement('canvas');
     cv.imshow(originalCanvas, iconRoi);
 
     // 2. 조각 모양 추출 + 이진화 이미지 생성
-    const { shape, binary, gridInfo, dots, gridSizeX, gridSizeY } = extractShapeFromRoiWithDebug(iconRoi, bgColor, index);
+    const hasGreenTag = (greenOffset > 0);
+    const { shape, binary, gridInfo, dots, gridSizeX, gridSizeY } = extractShapeFromRoiWithDebug(iconRoi, bgColor, index, hasGreenTag);
 
     // 디버그 캔버스 2: 배경 제거된 이진화 이미지
     const processedCanvas = document.createElement('canvas');
@@ -2689,7 +3044,7 @@ function extractShapeFromImageWithDebug(src, box, bgColor, index, grade) {
 
 // ===== 디버그용 그리드 분석 함수 =====
 // 배경 제거 + 그리드 분석 + 디버그 정보 반환
-function extractShapeFromRoiWithDebug(iconRoi, bgColor, index) {
+function extractShapeFromRoiWithDebug(iconRoi, bgColor, index, hasGreenTag = false) {
     const iconW = iconRoi.cols;
     const iconH = iconRoi.rows;
 
@@ -2701,7 +3056,7 @@ function extractShapeFromRoiWithDebug(iconRoi, bgColor, index) {
     const edges = new cv.Mat();
     cv.Canny(gray, edges, 30, 100);
 
-    const kernel = cv.getStructuringElement(cv.MORPH_RECT, new cv.Size(3, 3));
+    const kernel = cv.getStructuringElement(cv.MORPH_RECT, new cv.Size(5, 5));
     cv.dilate(edges, edges, kernel);
 
     const edgeContours = new cv.MatVector();
@@ -2729,19 +3084,74 @@ function extractShapeFromRoiWithDebug(iconRoi, bgColor, index) {
 
     // ===== 2단계: 배경색 제거 (색상 범위 기반) =====
     const tolerance = 60;
-    const lower = new cv.Mat(iconRoi.rows, iconRoi.cols, iconRoi.type(),
+    const bgLower = new cv.Mat(iconRoi.rows, iconRoi.cols, iconRoi.type(),
         [Math.max(0, bgColor.r - tolerance), Math.max(0, bgColor.g - tolerance),
          Math.max(0, bgColor.b - tolerance), 0]);
-    const upper = new cv.Mat(iconRoi.rows, iconRoi.cols, iconRoi.type(),
+    const bgUpper = new cv.Mat(iconRoi.rows, iconRoi.cols, iconRoi.type(),
         [Math.min(255, bgColor.r + tolerance), Math.min(255, bgColor.g + tolerance),
          Math.min(255, bgColor.b + tolerance), 255]);
 
-    const colorMask = new cv.Mat();
-    cv.inRange(iconRoi, lower, upper, colorMask);  // 배경색 영역 찾기
-    cv.bitwise_not(colorMask, colorMask);          // 반전 (조각 영역만 남김)
+    const bgMask = new cv.Mat();
+    cv.inRange(iconRoi, bgLower, bgUpper, bgMask);  // 배경색 영역 찾기
 
-    lower.delete();
-    upper.delete();
+    bgLower.delete();
+    bgUpper.delete();
+
+    // ===== 2-1단계: "장착중" 녹색 태그 제거 (#52CE32) =====
+    const greenTolerance = 35;
+    const greenLower = new cv.Mat(iconRoi.rows, iconRoi.cols, iconRoi.type(),
+        [Math.max(0, 82 - greenTolerance), Math.max(0, 206 - greenTolerance),
+         Math.max(0, 50 - greenTolerance), 0]);
+    const greenUpper = new cv.Mat(iconRoi.rows, iconRoi.cols, iconRoi.type(),
+        [Math.min(255, 82 + greenTolerance), Math.min(255, 206 + greenTolerance),
+         Math.min(255, 50 + greenTolerance), 255]);
+
+    const greenMask = new cv.Mat();
+    cv.inRange(iconRoi, greenLower, greenUpper, greenMask);  // 녹색 영역 찾기
+
+    greenLower.delete();
+    greenUpper.delete();
+
+    // ===== 2-2단계: 상단 영역의 밝은 픽셀 제거 (흰색 텍스트 + 회색 테두리 잔여물) =====
+    const topCleanHeight = Math.floor(iconH * 0.25); // 상단 25% 영역
+    const brightnessMask = new cv.Mat.zeros(iconH, iconW, cv.CV_8UC1);
+
+    for (let y = 0; y < topCleanHeight; y++) {
+        for (let x = 0; x < iconW; x++) {
+            const pixel = iconRoi.ucharPtr(y, x);
+            const r = pixel[0];
+            const g = pixel[1];
+            const b = pixel[2];
+            const brightness = (r + g + b) / 3;
+
+            // RGB 차이 (회색은 R≈G≈B)
+            const maxChannel = Math.max(r, g, b);
+            const minChannel = Math.min(r, g, b);
+            const colorDiff = maxChannel - minChannel;
+
+            // 제거 조건:
+            // 1. 밝은 픽셀 (밝기 > 180)
+            // 2. 흰색 (R,G,B > 200)
+            // 3. 회색 계열 (색차 < 30 AND 밝기 > 100)
+            const isGray = (colorDiff < 30 && brightness > 100);
+            const isBright = brightness > 180;
+            const isWhite = (r > 200 && g > 200 && b > 200);
+
+            if (isBright || isWhite || isGray) {
+                brightnessMask.ucharPtr(y, x)[0] = 255; // 제거 대상
+            }
+        }
+    }
+
+    // 배경색 마스크 + 녹색 마스크 + 밝기 마스크 합치기
+    const colorMask = new cv.Mat();
+    cv.bitwise_or(bgMask, greenMask, colorMask);  // 배경 + 녹색
+    cv.bitwise_or(colorMask, brightnessMask, colorMask);  // + 밝은 픽셀
+    cv.bitwise_not(colorMask, colorMask);         // 반전 (조각 영역만 남김)
+
+    bgMask.delete();
+    greenMask.delete();
+    brightnessMask.delete();
 
     // ===== 3단계: 엣지 마스크와 색상 마스크 합치기 =====
     cv.bitwise_or(edgeMask, colorMask, binary);
@@ -2749,18 +3159,89 @@ function extractShapeFromRoiWithDebug(iconRoi, bgColor, index) {
     colorMask.delete();
     gray.delete();
 
-    // ===== 4단계: 노이즈 제거 (모폴로지 연산) =====
+    // ===== 4단계: 상단 영역의 흰색 라인 제거 (50% 이상 흰색인 라인만) =====
+    const scanTopLines = 10; // 상단 10픽셀까지 스캔
+    const whiteThreshold = 128; // 흰색 판정 기준
+    const whiteRatioThreshold = 0.5; // 50% 이상
+
+    for (let y = 0; y < Math.min(scanTopLines, iconH); y++) {
+        let whitePixelCount = 0;
+
+        // 현재 라인의 흰색 픽셀 개수 세기
+        for (let x = 0; x < iconW; x++) {
+            if (binary.ucharPtr(y, x)[0] > whiteThreshold) {
+                whitePixelCount++;
+            }
+        }
+
+        // 흰색 비율 계산
+        const whiteRatio = whitePixelCount / iconW;
+
+        // 50% 이상이면 왼쪽 25%만 검은색으로 칠함
+        if (whiteRatio >= whiteRatioThreshold) {
+            const paintWidth = Math.floor(iconW * 0.25); // 왼쪽 25%
+            for (let x = 0; x < paintWidth; x++) {
+                binary.ucharPtr(y, x)[0] = 0; // 검은색으로 칠함
+            }
+            console.log(`[디버그 #${index}] 라인 ${y}: 흰색 비율 ${(whiteRatio * 100).toFixed(1)}% → 왼쪽 25% 제거`);
+        }
+    }
+
+    // ===== 4-1단계: 추가 노이즈 제거 (녹색 태그가 있었던 경우) =====
+    if (hasGreenTag) {
+        // 상단 3px 영역에서 작은 흰색 점들만 제거 (연속된 흰색 영역은 보존)
+        const cleanHeight = Math.min(3, iconH);
+        for (let y = 0; y < cleanHeight; y++) {
+            for (let x = 0; x < iconW; x++) {
+                if (binary.ucharPtr(y, x)[0] > 128) {
+                    // 주변 8방향 확인
+                    let whiteNeighbors = 0;
+                    for (let dy = -1; dy <= 1; dy++) {
+                        for (let dx = -1; dx <= 1; dx++) {
+                            if (dx === 0 && dy === 0) continue;
+                            const ny = y + dy;
+                            const nx = x + dx;
+                            if (ny >= 0 && ny < iconH && nx >= 0 && nx < iconW) {
+                                if (binary.ucharPtr(ny, nx)[0] > 128) {
+                                    whiteNeighbors++;
+                                }
+                            }
+                        }
+                    }
+                    // 주변에 흰색이 3개 이하면 노이즈로 간주하고 제거
+                    if (whiteNeighbors <= 3) {
+                        binary.ucharPtr(y, x)[0] = 0;
+                    }
+                }
+            }
+        }
+    }
+
+    // ===== 5단계: 노이즈 제거 (모폴로지 연산) =====
     cv.morphologyEx(binary, binary, cv.MORPH_OPEN, kernel);   // 작은 점 제거
     cv.morphologyEx(binary, binary, cv.MORPH_CLOSE, kernel);  // 작은 구멍 메우기
     kernel.delete();
 
-    // ===== 5단계: 윤곽선으로 조각 영역 채우기 =====
+    // ===== 5단계: 윤곽선으로 조각 영역 채우기 (가장 큰 윤곽선만) =====
     const contours = new cv.MatVector();
     const hierarchy = new cv.Mat();
     cv.findContours(binary, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
 
+    // 가장 큰 윤곽선 찾기 (실제 조각)
+    let largestArea = 0;
+    let largestIdx = -1;
     for (let i = 0; i < contours.size(); i++) {
-        cv.drawContours(binary, contours, i, new cv.Scalar(255), cv.FILLED);
+        const area = cv.contourArea(contours.get(i));
+        if (area > largestArea) {
+            largestArea = area;
+            largestIdx = i;
+        }
+    }
+
+    // 새로운 이진 이미지: 가장 큰 윤곽선만 그리기
+    binary.setTo(new cv.Scalar(0)); // 초기화 (검정)
+    if (largestIdx >= 0) {
+        cv.drawContours(binary, contours, largestIdx, new cv.Scalar(255), cv.FILLED);
     }
 
     contours.delete();

@@ -1,7 +1,7 @@
 // 게임 상태
 let gameState = {
     currentPosition: 0,
-    remainingTurns: 8,
+    remainingTurns: 7,
     refineCount: 3,
     stabilizerCount: 3,
     gameOver: false,
@@ -124,7 +124,7 @@ function craft(method) {
     addLog(`${craftMethod.name} 사용: ${sign}${movement} 이동 → ${newPosition}번 칸 (${slot.label})`);
 
     gameState.history.push({
-        turn: 8 - gameState.remainingTurns,
+        turn: 7 - gameState.remainingTurns + 1,
         method: craftMethod.name,
         movement: movement,
         position: newPosition,
@@ -282,7 +282,7 @@ function endGame() {
     if (finalSlot.grade === 'super-epic') {
         titleElement.textContent = '🎉 대성공! 슈퍼 에픽 달성!';
         titleElement.style.color = '#e74c3c';
-        messageElement.textContent = `최고 등급인 슈퍼 에픽을 달성했습니다! (${8 - gameState.remainingTurns}번 시도)`;
+        messageElement.textContent = `최고 등급인 슈퍼 에픽을 달성했습니다! (${7 - gameState.remainingTurns}번 시도)`;
     } else if (gameState.currentPosition === 16) {
         titleElement.textContent = '😢 아쉽게도 꽝입니다...';
         titleElement.style.color = '#95a5a6';
@@ -305,8 +305,8 @@ function endGame() {
 function resetGame() {
     gameState = {
         currentPosition: 0,
-        remainingTurns: 8,
-        refineCount: 3,
+        remainingTurns: 7,
+        refineCount: 7,
         stabilizerCount: 3,
         gameOver: false,
         history: []
@@ -357,8 +357,8 @@ function runSimulation() {
 // 랜덤 게임 시뮬레이션
 function simulateRandomGame() {
     let position = 0;
-    let turns = 8;
-    let refineLeft = 3;
+    let turns = 7;
+    let refineLeft = 7;
     let stabilizerLeft = 3;
 
     while (turns > 0) {
@@ -379,7 +379,7 @@ function simulateRandomGame() {
         if (position === 16) break;
     }
 
-    return { finalPosition: position, turnsUsed: 8 - turns };
+    return { finalPosition: position, turnsUsed: 7 - turns };
 }
 
 // 시뮬레이션 결과 표시
@@ -426,7 +426,7 @@ function getManualRecommendation() {
         manualResultDiv.innerHTML = '<p style="color: #e74c3c;">모든 값을 숫자로 입력해주세요.</p>';
         return;
     }
-    if (pos < 0 || pos > 16 || turns < 0 || turns > 8 || refine < 0 || refine > 3 || stabilizer < 0 || stabilizer > 3) {
+    if (pos < 0 || pos > 16 || turns < 0 || turns > 7 || refine < 0 || refine > 7 || stabilizer < 0 || stabilizer > 3) {
         manualResultDiv.innerHTML = '<p style="color: #e74c3c;">입력 값이 유효한 범위를 벗어났습니다.</p>';
         return;
     }
