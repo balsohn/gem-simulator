@@ -664,7 +664,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // 디버그 모달
+    // // 디버그 모달
     const debugModal = document.getElementById('debug-modal');
     const closeDebugModal = document.getElementById('close-debug-modal');
     const debugContent = document.getElementById('debug-content');
@@ -2405,7 +2405,7 @@ async function recognizePiecesWithCV(file) {
     // ===== 디버그 모달 표시 =====
     // 각 조각의 처리 과정을 시각화한 모달 창 표시
     // (원본 이미지, 배경 제거된 이미지, 그리드 분석 결과)
-    showDebugModal(debugData);
+    // showDebugModal(debugData); // 디버그 모달 비활성화
 
     // 6. 메모리 정리
     src.delete();
