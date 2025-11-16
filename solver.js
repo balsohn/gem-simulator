@@ -3053,8 +3053,14 @@ function extractShapeFromRoiWithDebug(iconRoi, bgColor, index, hasGreenTag = fal
     const gray = new cv.Mat();
 
     cv.cvtColor(iconRoi, gray, cv.COLOR_RGBA2GRAY);
+    
+    // 가우시안 블러로 노이즈 감소 (엣지 검출 전)
+    const blurred = new cv.Mat();
+    cv.GaussianBlur(gray, blurred, new cv.Size(3, 3), 0);
+    
     const edges = new cv.Mat();
-    cv.Canny(gray, edges, 30, 100);
+    cv.Canny(blurred, edges, 30, 100);
+    blurred.delete();
 
     const kernel = cv.getStructuringElement(cv.MORPH_RECT, new cv.Size(5, 5));
     cv.dilate(edges, edges, kernel);
@@ -3217,12 +3223,41 @@ function extractShapeFromRoiWithDebug(iconRoi, bgColor, index, hasGreenTag = fal
         }
     }
 
-    // ===== 5단계: 노이즈 제거 (모폴로지 연산) =====
-    cv.morphologyEx(binary, binary, cv.MORPH_OPEN, kernel);   // 작은 점 제거
-    cv.morphologyEx(binary, binary, cv.MORPH_CLOSE, kernel);  // 작은 구멍 메우기
-    kernel.delete();
+    // ===== 5단계: 노이즈 제거 (모폴로지 연산 강화) =====
+    // 작은 커널로 먼저 정리
+    const smallKernel = cv.getStructuringElement(cv.MORPH_RECT, new cv.Size(3, 3));
+    cv.morphologyEx(binary, binary, cv.MORPH_OPEN, smallKernel);   // 작은 점 제거
+    cv.morphologyEx(binary, binary, cv.MORPH_CLOSE, smallKernel);  // 작은 구멍 메우기
+    
+    // 큰 커널로 추가 정리
+    const largeKernel = cv.getStructuringElement(cv.MORPH_RECT, new cv.Size(5, 5));
+    cv.morphologyEx(binary, binary, cv.MORPH_CLOSE, largeKernel);  // 더 큰 구멍 메우기
+    
+    smallKernel.delete();
+    largeKernel.delete();
 
-    // ===== 5단계: 윤곽선으로 조각 영역 채우기 (가장 큰 윤곽선만) =====
+    // ===== 5-1단계: 작은 윤곽선 사전 제거 =====
+    const tempContours = new cv.MatVector();
+    const tempHierarchy = new cv.Mat();
+    cv.findContours(binary, tempContours, tempHierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+    
+    // 전체 영역의 1% 미만인 작은 윤곽선 제거
+    const totalImageArea = iconW * iconH;
+    const minContourArea = totalImageArea * 0.01;
+    
+    const cleanedBinary = cv.Mat.zeros(iconH, iconW, cv.CV_8UC1);
+    for (let i = 0; i < tempContours.size(); i++) {
+        const area = cv.contourArea(tempContours.get(i));
+        if (area >= minContourArea) {
+            cv.drawContours(cleanedBinary, tempContours, i, new cv.Scalar(255), cv.FILLED);
+        }
+    }
+    cleanedBinary.copyTo(binary);
+    cleanedBinary.delete();
+    tempContours.delete();
+    tempHierarchy.delete();
+
+    // ===== 5-2단계: 윤곽선으로 조각 영역 채우기 (가장 큰 윤곽선만) =====
     const contours = new cv.MatVector();
     const hierarchy = new cv.Mat();
     cv.findContours(binary, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
@@ -3246,6 +3281,11 @@ function extractShapeFromRoiWithDebug(iconRoi, bgColor, index, hasGreenTag = fal
 
     contours.delete();
     hierarchy.delete();
+    
+    // ===== 5-3단계: 최종 정리 (작은 돌기 제거) =====
+    const finalKernel = cv.getStructuringElement(cv.MORPH_RECT, new cv.Size(3, 3));
+    cv.morphologyEx(binary, binary, cv.MORPH_OPEN, finalKernel);  // 작은 돌기 제거
+    finalKernel.delete();
 
     // ===== 6단계: 조각의 bounding box 찾기 =====
     let minX = iconW, maxX = 0, minY = iconH, maxY = 0, totalFilled = 0;
