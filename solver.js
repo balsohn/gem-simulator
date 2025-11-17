@@ -4168,6 +4168,7 @@ function findPieceNameByShape(extractedShape) {
         setTimeout(() => {
             try {
                 bestScoreFound = -Infinity;
+                bestTotalResistance = -Infinity;
                 bestSolution = [];
                 bestCellsFilled = 0;
                 allSolutions = [];
@@ -4721,6 +4722,7 @@ function findPieceNameByShape(extractedShape) {
     }
 
     let bestScoreFound = -Infinity;
+    let bestTotalResistance = -Infinity; // 세트 보너스 포함 총 저항
     let bestSolution = [];
     let bestCellsFilled = 0;
     let allSolutions = [];
@@ -4754,18 +4756,38 @@ function findPieceNameByShape(extractedShape) {
             }
         });
         const currentCellsFilled = filledCellsSet.size;
+        
+        // 현재 상태의 세트 보너스 계산
+        const { totalBonus } = calculateSetBonus(setCellCounts);
+        const currentTotalResistance = currentScore + totalBonus;
 
-        if (currentCellsFilled > bestCellsFilled || (currentCellsFilled === bestCellsFilled && currentScore > bestScoreFound)) {
+        // 세트 보너스를 포함한 총 저항으로 비교
+        if (currentCellsFilled > bestCellsFilled || 
+            (currentCellsFilled === bestCellsFilled && currentTotalResistance > bestTotalResistance)) {
             bestScoreFound = currentScore;
+            bestTotalResistance = currentTotalResistance;
             bestSolution = [...partialSolution];
             bestCellsFilled = currentCellsFilled;
         }
 
         if (uncoveredPrimaryCount === 0 || partialSolution.length > 0) {
-             const isDuplicate = allSolutions.some(sol => sol.cellsFilled === currentCellsFilled && sol.score === currentScore);
+            // 세트 보너스를 포함한 총 저항으로 중복 체크 및 저장
+            const isDuplicate = allSolutions.some(sol => 
+                sol.cellsFilled === currentCellsFilled && 
+                sol.totalResistance === currentTotalResistance
+            );
             if (!isDuplicate) {
-                allSolutions.push({ solution: [...partialSolution], score: currentScore, cellsFilled: currentCellsFilled });
-                allSolutions.sort((a, b) => b.cellsFilled - a.cellsFilled || b.score - a.score);
+                allSolutions.push({ 
+                    solution: [...partialSolution], 
+                    score: currentScore, 
+                    cellsFilled: currentCellsFilled,
+                    totalResistance: currentTotalResistance // 세트 보너스 포함 총 저항 저장
+                });
+                // 세트 보너스를 포함한 총 저항으로 정렬
+                allSolutions.sort((a, b) => 
+                    b.totalResistance - a.totalResistance || 
+                    b.cellsFilled - a.cellsFilled
+                );
                 if (allSolutions.length > MAX_SOLUTIONS * 2) {
                     allSolutions = allSolutions.slice(0, MAX_SOLUTIONS * 2);
                 }
@@ -4850,12 +4872,21 @@ function findPieceNameByShape(extractedShape) {
                     const potentialCellsFilled = currentCellsFilled + actuallyNewCells.length;
                     const potentialScore = currentScore + piece.score;
                     
-                    // 원래대로 가지치기(Pruning) 로직 완화
+                    // 새로운 조각을 추가했을 때의 세트 보너스 계산
+                    const potentialSetCounts = { ...setCellCounts };
+                    if (piece.set) {
+                        potentialSetCounts[piece.set] = (potentialSetCounts[piece.set] || 0) + piece.shape.length;
+                    }
+                    const { totalBonus: potentialBonus } = calculateSetBonus(potentialSetCounts);
+                    const potentialTotalResistance = potentialScore + potentialBonus;
+                    
+                    // 세트 보너스를 포함한 총 저항을 고려한 가지치기
                     const shouldExplore = 
                         bestCellsFilled === 0 ||
                         potentialCellsFilled > bestCellsFilled ||
-                        (potentialCellsFilled === bestCellsFilled && potentialScore >= bestScoreFound) ||
-                        (bestCellsFilled > 0 && potentialCellsFilled >= bestCellsFilled * 0.8); // 95% -> 80%
+                        (potentialCellsFilled === bestCellsFilled && potentialTotalResistance >= bestTotalResistance) ||
+                        (bestCellsFilled > 0 && potentialCellsFilled >= bestCellsFilled * 0.8 && 
+                         potentialTotalResistance >= bestTotalResistance * 0.8); // 세트 보너스도 고려
 
                     if (shouldExplore) {
                         for (let j = r.R; j !== r; j = j.R) cover(j.C);
