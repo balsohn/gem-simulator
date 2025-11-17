@@ -545,9 +545,48 @@ document.addEventListener('DOMContentLoaded', () => {
                 gradesContainer.style.gap = '10px';
                 gradesContainer.style.marginTop = '10px';
 
-                gradesContainer.appendChild(createGradeInput(name, 'rare', gradeConfigs.rare));
-                gradesContainer.appendChild(createGradeInput(name, 'epic', gradeConfigs.epic));
-                gradesContainer.appendChild(createGradeInput(name, 'super', gradeConfigs.super));
+                if (tab.id === 'unique') {
+                    // 유니크 조각: 등급 없이 단일 개수 입력 (2000점 고정, 칸당 250점)
+                    const uniqueInputContainer = document.createElement('div');
+                    uniqueInputContainer.style.display = 'flex';
+                    uniqueInputContainer.style.flexDirection = 'column';
+                    uniqueInputContainer.style.gap = '6px';
+                    uniqueInputContainer.style.flex = '1';
+
+                    const uniqueLabel = document.createElement('div');
+                    uniqueLabel.textContent = '⭐ 유니크 (2000점)';
+                    uniqueLabel.style.fontSize = '0.9em';
+                    uniqueLabel.style.fontWeight = '600';
+                    uniqueLabel.style.color = '#FFD700';
+                    uniqueLabel.style.backgroundColor = '#FFF9E6';
+                    uniqueLabel.style.padding = '8px';
+                    uniqueLabel.style.borderRadius = '6px';
+                    uniqueLabel.style.textAlign = 'center';
+                    uniqueLabel.style.border = '2px solid #FFD700';
+
+                    const uniqueInput = document.createElement('input');
+                    uniqueInput.type = 'number';
+                    uniqueInput.value = '0';
+                    uniqueInput.min = '0';
+                    uniqueInput.max = '10';
+                    uniqueInput.id = `piece-count-${name}-unique`;
+                    uniqueInput.classList.add('piece-count-input');
+                    uniqueInput.style.width = '100%';
+                    uniqueInput.style.padding = '8px';
+                    uniqueInput.style.fontSize = '1em';
+                    uniqueInput.style.textAlign = 'center';
+                    uniqueInput.style.border = '2px solid #FFD700';
+                    uniqueInput.style.borderRadius = '6px';
+                    uniqueInput.style.fontWeight = 'bold';
+
+                    uniqueInputContainer.appendChild(uniqueLabel);
+                    uniqueInputContainer.appendChild(uniqueInput);
+                    gradesContainer.appendChild(uniqueInputContainer);
+                } else {
+                    gradesContainer.appendChild(createGradeInput(name, 'rare', gradeConfigs.rare));
+                    gradesContainer.appendChild(createGradeInput(name, 'epic', gradeConfigs.epic));
+                    gradesContainer.appendChild(createGradeInput(name, 'super', gradeConfigs.super));
+                }
 
                 pieceEl.appendChild(gradesContainer);
                 pieceGrid.appendChild(pieceEl);
@@ -568,13 +607,23 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- 3. Clear Pieces ---
     function clearPieces() {
         Object.keys(PIECES).forEach(name => {
-            const grades = ['rare', 'epic', 'super'];
-            grades.forEach(grade => {
-                const countInput = document.getElementById(`piece-count-${name}-${grade}`);
-                if (countInput) {
-                    countInput.value = '0';
+            const piece = PIECES[name];
+            if (piece.isUnique) {
+                // 유니크 조각: unique 입력 필드 초기화
+                const uniqueInput = document.getElementById(`piece-count-${name}-unique`);
+                if (uniqueInput) {
+                    uniqueInput.value = '0';
                 }
-            });
+            } else {
+                // 일반 조각: 등급별 입력 필드 초기화
+                const grades = ['rare', 'epic', 'super'];
+                grades.forEach(grade => {
+                    const countInput = document.getElementById(`piece-count-${name}-${grade}`);
+                    if (countInput) {
+                        countInput.value = '0';
+                    }
+                });
+            }
         });
         solutionSummary.textContent = '';
         solutionsContainer.innerHTML = '';
@@ -585,23 +634,34 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- 4. Random Fill Pieces ---
     function randomFillPieces() {
         Object.keys(PIECES).forEach(name => {
-            const grades = ['rare', 'epic', 'super'];
-            grades.forEach(grade => {
-                const countInput = document.getElementById(`piece-count-${name}-${grade}`);
-                if (countInput) {
-                    // 등급별 랜덤 범위: 레어 0~3, 에픽 0~2, 슈퍼에픽 0~1
-                    let maxValue;
-                    if (grade === 'rare') {
-                        maxValue = 4; // 0~3
-                    } else if (grade === 'epic') {
-                        maxValue = 3; // 0~2
-                    } else { // super
-                        maxValue = 2; // 0~1
-                    }
-                    const randomValue = Math.floor(Math.random() * maxValue);
-                    countInput.value = randomValue.toString();
+            const piece = PIECES[name];
+            if (piece.isUnique) {
+                // 유니크 조각: 0~1 랜덤
+                const uniqueInput = document.getElementById(`piece-count-${name}-unique`);
+                if (uniqueInput) {
+                    const randomValue = Math.floor(Math.random() * 2); // 0~1
+                    uniqueInput.value = randomValue.toString();
                 }
-            });
+            } else {
+                // 일반 조각: 등급별 랜덤 범위
+                const grades = ['rare', 'epic', 'super'];
+                grades.forEach(grade => {
+                    const countInput = document.getElementById(`piece-count-${name}-${grade}`);
+                    if (countInput) {
+                        // 등급별 랜덤 범위: 레어 0~3, 에픽 0~2, 슈퍼에픽 0~1
+                        let maxValue;
+                        if (grade === 'rare') {
+                            maxValue = 4; // 0~3
+                        } else if (grade === 'epic') {
+                            maxValue = 3; // 0~2
+                        } else { // super
+                            maxValue = 2; // 0~1
+                        }
+                        const randomValue = Math.floor(Math.random() * maxValue);
+                        countInput.value = randomValue.toString();
+                    }
+                });
+            }
         });
         solutionSummary.textContent = '🎲 랜덤 숫자가 입력되었습니다!';
         solutionsContainer.innerHTML = '';
@@ -2461,13 +2521,20 @@ document.addEventListener('DOMContentLoaded', () => {
     function fillPiecesFromVision(pieceData) {
         // Clear all inputs first
         Object.entries(PIECES).forEach(([name, piece]) => {
-            const grades = ['rare', 'epic', 'super'];
-            grades.forEach(grade => {
-                const countInput = document.getElementById(`piece-count-${name}-${grade}`);
-                if (countInput) {
-                    countInput.value = '0';
+            if (piece.isUnique) {
+                const uniqueInput = document.getElementById(`piece-count-${name}-unique`);
+                if (uniqueInput) {
+                    uniqueInput.value = '0';
                 }
-            });
+            } else {
+                const grades = ['rare', 'epic', 'super'];
+                grades.forEach(grade => {
+                    const countInput = document.getElementById(`piece-count-${name}-${grade}`);
+                    if (countInput) {
+                        countInput.value = '0';
+                    }
+                });
+            }
         });
 
         // 1단계: 같은 조각(pieceName + grade)을 그룹화하고 count 합산
@@ -2494,7 +2561,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
         pieceCountMap.forEach((totalCount, key) => {
             const [pieceName, grade] = key.split('-');
-            const inputId = `piece-count-${pieceName}-${grade}`;
+            // 유니크 조각인 경우 'unique' 등급으로 처리
+            const inputId = grade === 'unique' 
+                ? `piece-count-${pieceName}-unique`
+                : `piece-count-${pieceName}-${grade}`;
             const countInput = document.getElementById(inputId);
             
             if (countInput) {
@@ -2537,7 +2607,11 @@ document.addEventListener('DOMContentLoaded', () => {
             let found = false;
             for (let i = 0; i < pieceNames.length && !found; i++) {
                 const name = pieceNames[i];
-                const inputId = `piece-count-${name}-${unmatched.grade}`;
+                const piece = PIECES[name];
+                // 유니크 조각인 경우 'unique' 입력 필드 사용
+                const inputId = (unmatched.grade === 'unique' || piece.isUnique)
+                    ? `piece-count-${name}-unique`
+                    : `piece-count-${name}-${unmatched.grade}`;
                 
                 // 이미 사용된 입력 필드는 건너뛰기
                 if (usedInputs.has(inputId)) continue;
@@ -2552,11 +2626,15 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             }
             
-            // 해당 등급에서 찾지 못하면 다른 등급도 시도
-            if (!found) {
+            // 해당 등급에서 찾지 못하면 다른 등급도 시도 (유니크 제외)
+            if (!found && unmatched.grade !== 'unique') {
                 const grades = ['rare', 'epic', 'super'];
                 for (let i = 0; i < pieceNames.length && !found; i++) {
                     const name = pieceNames[i];
+                    const piece = PIECES[name];
+                    // 유니크 조각은 건너뛰기
+                    if (piece.isUnique) continue;
+                    
                     for (const grade of grades) {
                         const inputId = `piece-count-${name}-${grade}`;
                         
@@ -2667,34 +2745,54 @@ document.addEventListener('DOMContentLoaded', () => {
     function fillPiecesFromOCR(numbers) {
         // Clear all existing inputs first
         Object.entries(PIECES).forEach(([name, piece]) => {
-            const grades = ['rare', 'epic', 'super'];
-            grades.forEach(grade => {
-                const countInput = document.getElementById(`piece-count-${name}-${grade}`);
-                if (countInput) {
-                    countInput.value = '0';
+            if (piece.isUnique) {
+                const uniqueInput = document.getElementById(`piece-count-${name}-unique`);
+                if (uniqueInput) {
+                    uniqueInput.value = '0';
                 }
-            });
+            } else {
+                const grades = ['rare', 'epic', 'super'];
+                grades.forEach(grade => {
+                    const countInput = document.getElementById(`piece-count-${name}-${grade}`);
+                    if (countInput) {
+                        countInput.value = '0';
+                    }
+                });
+            }
         });
 
         // Strategy: Fill sequentially based on piece order in PIECES
         // User can adjust manually if needed
         let numberIndex = 0;
         const pieceNames = Object.keys(PIECES);
-        const grades = ['rare', 'epic', 'super'];
 
-        // Fill each piece-grade combination with available numbers
+        // Fill each piece with available numbers
         for (let i = 0; i < pieceNames.length && numberIndex < numbers.length; i++) {
-            for (let j = 0; j < grades.length && numberIndex < numbers.length; j++) {
-                const name = pieceNames[i];
-                const grade = grades[j];
-                const countInput = document.getElementById(`piece-count-${name}-${grade}`);
-
-                if (countInput) {
+            const name = pieceNames[i];
+            const piece = PIECES[name];
+            
+            if (piece.isUnique) {
+                // 유니크 조각: unique 입력 필드에 값 입력
+                const uniqueInput = document.getElementById(`piece-count-${name}-unique`);
+                if (uniqueInput && numberIndex < numbers.length) {
                     const value = parseInt(numbers[numberIndex], 10);
-                    // Only use reasonable numbers (0-99)
                     if (value >= 0 && value <= 99) {
-                        countInput.value = value.toString();
+                        uniqueInput.value = value.toString();
                         numberIndex++;
+                    }
+                }
+            } else {
+                // 일반 조각: 등급별로 값 입력
+                const grades = ['rare', 'epic', 'super'];
+                for (let j = 0; j < grades.length && numberIndex < numbers.length; j++) {
+                    const grade = grades[j];
+                    const countInput = document.getElementById(`piece-count-${name}-${grade}`);
+                    if (countInput) {
+                        const value = parseInt(numbers[numberIndex], 10);
+                        if (value >= 0 && value <= 99) {
+                            countInput.value = value.toString();
+                            numberIndex++;
+                        }
                     }
                 }
             }
@@ -4090,21 +4188,38 @@ function findPieceNameByShape(extractedShape) {
         let piecesCellCount = 0;
 
         Object.entries(PIECES).forEach(([name, piece]) => {
-            const grades = ['rare', 'epic', 'super'];
-            grades.forEach(grade => {
-                const countInput = document.getElementById(`piece-count-${name}-${grade}`);
-                if (countInput) {
-                    const count = parseInt(countInput.value, 10);
+            if (piece.isUnique) {
+                // 유니크 조각: 등급 없이 항상 2000점 (칸당 250점)
+                const uniqueInput = document.getElementById(`piece-count-${name}-unique`);
+                if (uniqueInput) {
+                    const count = parseInt(uniqueInput.value, 10);
                     if (count > 0) {
-                        const pieceScore = calculateScore(piece.cellCount, grade);
+                        const uniqueScore = 2000; // 유니크는 항상 2000점 고정
                         for (let i = 0; i < count; i++) {
-                            const uniqueName = `${name}_${grade}_${i}`;
-                            piecesToUse.push({ name: uniqueName, ...piece, score: pieceScore, grade: grade });
+                            const uniqueName = `${name}_unique_${i}`;
+                            piecesToUse.push({ name: uniqueName, ...piece, score: uniqueScore, grade: 'unique' });
                             piecesCellCount += piece.shape.length;
                         }
                     }
                 }
-            });
+            } else {
+                // 일반 조각: 등급별 처리
+                const grades = ['rare', 'epic', 'super'];
+                grades.forEach(grade => {
+                    const countInput = document.getElementById(`piece-count-${name}-${grade}`);
+                    if (countInput) {
+                        const count = parseInt(countInput.value, 10);
+                        if (count > 0) {
+                            const pieceScore = calculateScore(piece.cellCount, grade);
+                            for (let i = 0; i < count; i++) {
+                                const uniqueName = `${name}_${grade}_${i}`;
+                                piecesToUse.push({ name: uniqueName, ...piece, score: pieceScore, grade: grade });
+                                piecesCellCount += piece.shape.length;
+                            }
+                        }
+                    }
+                });
+            }
         });
 
         if (piecesToUse.length === 0) {
