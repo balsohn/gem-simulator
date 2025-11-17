@@ -4770,11 +4770,12 @@ function findPieceNameByShape(extractedShape) {
             bestCellsFilled = currentCellsFilled;
         }
 
+        // 해를 찾았을 때 저장 (완전한 해든 부분 해든)
         if (uncoveredPrimaryCount === 0 || partialSolution.length > 0) {
             // 세트 보너스를 포함한 총 저항으로 중복 체크 및 저장
             const isDuplicate = allSolutions.some(sol => 
                 sol.cellsFilled === currentCellsFilled && 
-                sol.totalResistance === currentTotalResistance
+                Math.abs(sol.totalResistance - currentTotalResistance) < 0.01 // 부동소수점 오차 고려
             );
             if (!isDuplicate) {
                 allSolutions.push({ 
@@ -4788,14 +4789,21 @@ function findPieceNameByShape(extractedShape) {
                     b.totalResistance - a.totalResistance || 
                     b.cellsFilled - a.cellsFilled
                 );
-                if (allSolutions.length > MAX_SOLUTIONS * 2) {
-                    allSolutions = allSolutions.slice(0, MAX_SOLUTIONS * 2);
+                // 더 많은 해를 탐색하도록 제한 완화
+                if (allSolutions.length > MAX_SOLUTIONS * 3) {
+                    allSolutions = allSolutions.slice(0, MAX_SOLUTIONS * 3);
                 }
             }
         }
         
-        if (uncoveredPrimaryCount === 0) return;
-
+        // 완전한 해를 찾았는지 확인 (모든 primary column이 커버됨)
+        if (uncoveredPrimaryCount === 0) {
+            // 완전한 해를 찾았으므로 더 이상 탐색할 primary column이 없음
+            // 하지만 다른 조각 조합으로 더 좋은 점수를 얻을 수 있으므로
+            // 이 경로는 종료하되, 다른 경로는 계속 탐색됨
+            return;
+        }
+        
         let c = root.R;
         while (c !== root && c.type === 'secondary') c = c.R;
         if (c === root) return;
@@ -4880,13 +4888,19 @@ function findPieceNameByShape(extractedShape) {
                     const { totalBonus: potentialBonus } = calculateSetBonus(potentialSetCounts);
                     const potentialTotalResistance = potentialScore + potentialBonus;
                     
-                    // 세트 보너스를 포함한 총 저항을 고려한 가지치기
+                    // 세트 보너스를 포함한 총 저항을 고려한 가지치기 (더 완화)
+                    // 완전한 해를 찾았어도 더 좋은 해를 찾기 위해 계속 탐색
+                    const targetCellCount = gridState.filter(Boolean).length;
+                    const isCompleteSolution = potentialCellsFilled >= targetCellCount;
+                    
                     const shouldExplore = 
                         bestCellsFilled === 0 ||
                         potentialCellsFilled > bestCellsFilled ||
                         (potentialCellsFilled === bestCellsFilled && potentialTotalResistance >= bestTotalResistance) ||
-                        (bestCellsFilled > 0 && potentialCellsFilled >= bestCellsFilled * 0.8 && 
-                         potentialTotalResistance >= bestTotalResistance * 0.8); // 세트 보너스도 고려
+                        // 완전한 해이거나, 잠재적 가치가 충분히 높으면 탐색
+                        isCompleteSolution ||
+                        (bestCellsFilled > 0 && potentialCellsFilled >= bestCellsFilled * 0.7 && 
+                         potentialTotalResistance >= bestTotalResistance * 0.7); // 80% -> 70%로 완화
 
                     if (shouldExplore) {
                         for (let j = r.R; j !== r; j = j.R) cover(j.C);
