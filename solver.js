@@ -4382,10 +4382,10 @@ function findPieceNameByShape(extractedShape) {
                 placePiece(newBoard, piece.shape, pos[0], pos[1], currentPieceId);
                 pieceGrades[currentPieceId] = piece.grade || 'rare'; // grade 정보 저장
 
-                // 세트 정보 추출 및 카운트
+                // 세트 정보 추출 및 카운트 (유니크 조각은 세트 보너스에 포함하지 않음)
                 const pieceSet = piece.set || null;
                 pieceSets[currentPieceId] = pieceSet; // 세트 정보 저장
-                if (pieceSet) {
+                if (pieceSet && !piece.isUnique) {
                     setCellCounts[pieceSet] = (setCellCounts[pieceSet] || 0) + piece.shape.length;
                 }
 
@@ -4594,6 +4594,9 @@ function findPieceNameByShape(extractedShape) {
                 } else if (grade === 'super') {
                     // 연한 빨강
                     finalColor = 'hsl(10, 70%, 65%)';
+                } else if (grade === 'unique') {
+                    // 골드색 (유니크)
+                    finalColor = 'hsl(45, 80%, 60%)';
                 }
 
                 cell.style.backgroundColor = finalColor;
@@ -4636,8 +4639,17 @@ function findPieceNameByShape(extractedShape) {
                 // Add piece number and set icon in the center of each piece
                 const isCenter = isPieceCenter(grid2D, row, col, pieceId);
                 if (isCenter) {
-                    const pieceSet = pieceSets[pieceId];
-                    const setIcon = pieceSet && SET_INFO[pieceSet] ? SET_INFO[pieceSet].icon : '';
+                    const pieceGrade = pieceGrades[pieceId] || 'rare';
+                    let setIcon = '';
+                    
+                    // 유니크 조각은 세트 효과가 없으므로 별표 이모지 사용
+                    if (pieceGrade === 'unique') {
+                        setIcon = '⭐';
+                    } else {
+                        const pieceSet = pieceSets[pieceId];
+                        setIcon = pieceSet && SET_INFO[pieceSet] ? SET_INFO[pieceSet].icon : '';
+                    }
+                    
                     cell.textContent = `${setIcon} ${pieceId}`;
                     cell.style.display = 'flex';
                     cell.style.alignItems = 'center';
@@ -4864,8 +4876,8 @@ function findPieceNameByShape(extractedShape) {
             if (pieceNode.pieceInfo) {
                 const { piece, pos } = pieceNode.pieceInfo;
                 piece.shape.forEach(([dr, dc]) => filledCellsSet.add((pos[0] + dr) * GRID_SIZE + (pos[1] + dc)));
-                // 새로운 로직: setCellCounts 업데이트
-                if (piece.set) {
+                // 새로운 로직: setCellCounts 업데이트 (유니크 조각은 세트 보너스에 포함하지 않음)
+                if (piece.set && !piece.isUnique) {
                     setCellCounts[piece.set] = (setCellCounts[piece.set] || 0) + piece.shape.length;
                 }
             }
@@ -4995,9 +5007,9 @@ function findPieceNameByShape(extractedShape) {
                     const potentialCellsFilled = currentCellsFilled + actuallyNewCells.length;
                     const potentialScore = currentScore + piece.score;
                     
-                    // 새로운 조각을 추가했을 때의 세트 보너스 계산
+                    // 새로운 조각을 추가했을 때의 세트 보너스 계산 (유니크 조각은 세트 보너스에 포함하지 않음)
                     const potentialSetCounts = { ...setCellCounts };
-                    if (piece.set) {
+                    if (piece.set && !piece.isUnique) {
                         potentialSetCounts[piece.set] = (potentialSetCounts[piece.set] || 0) + piece.shape.length;
                     }
                     const { totalBonus: potentialBonus } = calculateSetBonus(potentialSetCounts);
